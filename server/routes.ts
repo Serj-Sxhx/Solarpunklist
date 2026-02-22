@@ -71,6 +71,20 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/subscribe", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== "string" || !email.includes("@")) {
+        return res.status(400).json({ error: "Valid email is required" });
+      }
+      const subscriber = await storage.addEmailSubscriber(email.trim().toLowerCase());
+      res.json({ success: true, subscriber });
+    } catch (error) {
+      console.error("Subscribe error:", error);
+      res.status(500).json({ error: "Failed to subscribe" });
+    }
+  });
+
   app.post("/api/admin/seed", async (_req, res) => {
     try {
       const { seedCommunities } = await import("./seed");

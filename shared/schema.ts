@@ -104,6 +104,20 @@ export const refreshRuns = pgTable("refresh_runs", {
   status: text("status").default("pending"),
 });
 
+export const emailSubscribers = pgTable("email_subscribers", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").notNull().unique(),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const insertEmailSubscriberSchema = createInsertSchema(emailSubscribers).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type EmailSubscriber = typeof emailSubscribers.$inferSelect;
+export type InsertEmailSubscriber = z.infer<typeof insertEmailSubscriberSchema>;
+
 export const insertCommunitySchema = createInsertSchema(communities).omit({
   id: true,
   createdAt: true,

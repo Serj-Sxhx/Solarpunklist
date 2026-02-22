@@ -1,9 +1,37 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { CommunityCard } from "@/components/CommunityCard";
 import { CommunityCardSkeleton } from "@/components/CommunityCardSkeleton";
 import { FilterBar, type FilterState } from "@/components/FilterBar";
-import { Leaf, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Leaf,
+  Sparkles,
+  Mail,
+  Loader2,
+  CheckCircle2,
+  Sun,
+  Wind,
+  Droplets,
+  Cpu,
+  TreePine,
+  Zap,
+  Radio,
+  Cog,
+  Bot,
+  Wifi,
+  ExternalLink,
+} from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
 import type { CommunityWithRelations } from "@shared/schema";
 
 const REGION_MAP: Record<string, string> = {
@@ -38,6 +66,19 @@ function getRegion(country: string | null | undefined): string {
   return REGION_MAP[country] || "";
 }
 
+const SOLARPUNK_TECHNOLOGIES = [
+  { name: "Solar Microgrids", icon: Sun },
+  { name: "Wind Turbines", icon: Wind },
+  { name: "Rainwater Harvesting", icon: Droplets },
+  { name: "Edge AI Compute", icon: Cpu },
+  { name: "Permaculture Design", icon: TreePine },
+  { name: "Battery Storage", icon: Zap },
+  { name: "LoRa / Mesh Networks", icon: Radio },
+  { name: "CNC & 3D Printing", icon: Cog },
+  { name: "Autonomous Drones", icon: Bot },
+  { name: "IoT Sensor Arrays", icon: Wifi },
+];
+
 export default function DirectoryPage() {
   const [filters, setFilters] = useState<FilterState>({
     search: "",
@@ -46,9 +87,30 @@ export default function DirectoryPage() {
     sort: "score",
   });
 
+  const [email, setEmail] = useState("");
+  const [showSuccess, setShowSuccess] = useState(false);
+
   const { data: communities, isLoading } = useQuery<CommunityWithRelations[]>({
     queryKey: ["/api/communities"],
   });
+
+  const subscribeMutation = useMutation({
+    mutationFn: async (emailAddr: string) => {
+      const res = await apiRequest("POST", "/api/subscribe", { email: emailAddr });
+      return res.json();
+    },
+    onSuccess: () => {
+      setEmail("");
+      setShowSuccess(true);
+    },
+  });
+
+  const handleSubscribe = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (email.trim() && email.includes("@")) {
+      subscribeMutation.mutate(email.trim());
+    }
+  };
 
   const filtered = useMemo(() => {
     if (!communities) return [];
@@ -101,22 +163,65 @@ export default function DirectoryPage() {
     <div className="min-h-screen bg-background">
       <section className="relative bg-gradient-to-br from-emerald-50 via-background to-amber-50/30 dark:from-emerald-950/20 dark:via-background dark:to-amber-950/10 border-b border-border/40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
-          <div className="max-w-2xl">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="w-4 h-4 text-primary" />
-              <span className="text-xs font-semibold text-primary uppercase tracking-wider">
-                AI-Powered Directory
-              </span>
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
+            <div className="max-w-2xl">
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <span className="text-xs font-semibold text-primary uppercase tracking-wider">
+                  AI-Powered Directory
+                </span>
+              </div>
+              <h1 className="text-3xl sm:text-4xl font-extrabold text-foreground leading-tight tracking-tight" data-testid="text-hero-title">
+                Discover Regenerative
+                <br />
+                <span className="text-primary">Communities</span> Worldwide
+              </h1>
+              <p className="mt-3 text-base sm:text-lg text-muted-foreground leading-relaxed max-w-xl">
+                Explore solarpunk intentional communities and regenerative land projects.
+                Auto-discovered by AI, updated monthly, scored for sustainability.
+              </p>
             </div>
-            <h1 className="text-3xl sm:text-4xl font-extrabold text-foreground leading-tight tracking-tight" data-testid="text-hero-title">
-              Discover Regenerative
-              <br />
-              <span className="text-primary">Communities</span> Worldwide
-            </h1>
-            <p className="mt-3 text-base sm:text-lg text-muted-foreground leading-relaxed max-w-xl">
-              Explore solarpunk intentional communities and regenerative land projects.
-              Auto-discovered by AI, updated monthly, scored for sustainability.
-            </p>
+
+            <div className="lg:w-80 shrink-0">
+              <div className="bg-white/60 dark:bg-card/60 backdrop-blur-sm border border-border/60 rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-2">
+                  <Mail className="w-4 h-4 text-primary" />
+                  <h3 className="text-sm font-bold text-foreground">Stay Updated</h3>
+                </div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Get notified when new communities are discovered.
+                </p>
+                <form onSubmit={handleSubscribe} className="flex gap-2" data-testid="form-subscribe">
+                  <Input
+                    type="email"
+                    placeholder="your@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="h-9 text-sm bg-background"
+                    required
+                    data-testid="input-email"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    className="h-9 px-4 shrink-0"
+                    disabled={subscribeMutation.isPending}
+                    data-testid="button-subscribe"
+                  >
+                    {subscribeMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      "Join"
+                    )}
+                  </Button>
+                </form>
+                {subscribeMutation.isError && (
+                  <p className="text-xs text-destructive mt-2" data-testid="text-subscribe-error">
+                    Something went wrong. Please try again.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
         <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
@@ -129,32 +234,101 @@ export default function DirectoryPage() {
           totalCount={filtered.length}
         />
 
-        <div className="mt-6">
-          {isLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {Array.from({ length: 9 }).map((_, i) => (
-                <CommunityCardSkeleton key={i} />
-              ))}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <Leaf className="w-7 h-7 text-muted-foreground" />
+        <div className="mt-6 flex gap-6">
+          <div className="flex-1 min-w-0">
+            {isLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {Array.from({ length: 9 }).map((_, i) => (
+                  <CommunityCardSkeleton key={i} />
+                ))}
               </div>
-              <h3 className="text-lg font-semibold text-foreground">No communities found</h3>
-              <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-                Try adjusting your filters or search terms to discover more communities.
-              </p>
+            ) : filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                  <Leaf className="w-7 h-7 text-muted-foreground" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground">No communities found</h3>
+                <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+                  Try adjusting your filters or search terms to discover more communities.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {filtered.map((community) => (
+                  <CommunityCard key={community.id} community={community} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <aside className="hidden xl:block w-72 shrink-0" data-testid="sidebar-technologies">
+            <div className="sticky top-20">
+              <Card className="p-5 border-border/60">
+                <div className="flex items-center gap-2 mb-4">
+                  <Zap className="w-5 h-5 text-primary" />
+                  <h3 className="text-base font-bold text-foreground">Solarpunk Tech</h3>
+                </div>
+
+                <ul className="space-y-2.5 mb-5">
+                  {SOLARPUNK_TECHNOLOGIES.map((tech) => {
+                    const Icon = tech.icon;
+                    return (
+                      <li key={tech.name} className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                        <Icon className="w-4 h-4 text-primary/70 shrink-0" />
+                        <span>{tech.name}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                <div className="border-t border-border/60 pt-4 mb-4">
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    We consult on local-first AI data centers to run robots, drones, IoT and all solarpunk technology needs. From microgrids to mesh networks, we help communities build resilient tech infrastructure.
+                  </p>
+                </div>
+
+                <a
+                  href="https://cal.com/serj-hunt-5otgyc/60-min-meeting"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block"
+                  data-testid="link-contact-us"
+                >
+                  <Button className="w-full gap-2" size="sm">
+                    <ExternalLink className="w-4 h-4" />
+                    Contact Us
+                  </Button>
+                </a>
+              </Card>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {filtered.map((community) => (
-                <CommunityCard key={community.id} community={community} />
-              ))}
-            </div>
-          )}
+          </aside>
         </div>
       </main>
+
+      <Dialog open={showSuccess} onOpenChange={setShowSuccess}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-success">
+          <DialogHeader>
+            <div className="flex justify-center mb-3">
+              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+                <CheckCircle2 className="w-8 h-8 text-primary" />
+              </div>
+            </div>
+            <DialogTitle className="text-center">You're In!</DialogTitle>
+            <DialogDescription className="text-center">
+              Thanks for subscribing. We'll notify you when new solarpunk communities are discovered.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-center mt-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowSuccess(false)}
+              data-testid="button-close-success"
+            >
+              Continue Browsing
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

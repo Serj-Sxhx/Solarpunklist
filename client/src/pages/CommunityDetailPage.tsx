@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
 import { useState } from "react";
+import { useSEO } from "@/hooks/useSEO";
 import {
   ArrowLeft,
   ExternalLink,
@@ -44,6 +45,18 @@ export default function CommunityDetailPage() {
 
   const { data: community, isLoading, error } = useQuery<CommunityWithRelations>({
     queryKey: ["/api/communities", params.slug],
+  });
+
+  useSEO({
+    title: community
+      ? `${community.name} - Solarpunk Community | SolarpunkList`
+      : "Community | SolarpunkList",
+    description: community
+      ? `${community.tagline || community.overview?.slice(0, 150) || community.name}. Solarpunk Score: ${Math.round(community.solarpunkScore ?? 0)}/100. ${community.locationRegion ? `Located in ${community.locationRegion}, ${community.locationCountry}` : ""}`
+      : undefined,
+    ogTitle: community ? `${community.name} | SolarpunkList` : undefined,
+    ogDescription: community?.tagline || community?.overview?.slice(0, 200) || undefined,
+    ogImage: community?.heroImageUrl || undefined,
   });
 
   if (isLoading) return <DetailSkeleton />;

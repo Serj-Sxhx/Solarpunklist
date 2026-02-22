@@ -2,8 +2,16 @@ import { Link } from "wouter";
 import { ArrowLeft, Leaf, Search, RefreshCw, BarChart3, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useSEO } from "@/hooks/useSEO";
 
 export default function AboutPage() {
+  useSEO({
+    title: "About SolarpunkList - AI-Powered Ecovillage Directory",
+    description: "Learn how SolarpunkList uses AI-powered web search and language models to discover, profile, and score solarpunk communities and regenerative land projects worldwide.",
+    ogTitle: "About SolarpunkList",
+    ogDescription: "How our AI discovers and profiles solarpunk communities worldwide.",
+  });
+
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16">

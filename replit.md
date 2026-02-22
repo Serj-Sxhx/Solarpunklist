@@ -29,6 +29,7 @@ Preferred communication style: Simple, everyday language.
   - `GET /api/communities/:slug` — single community detail
   - `GET /api/stats` — total community count
   - `POST /api/admin/discover` — trigger AI discovery pipeline
+  - `POST /api/subscribe` — email subscription (stores to `email_subscribers` table)
   - Chat/conversation endpoints under `/api/conversations`
 - **Build:** Custom build script (`script/build.ts`) using Vite for client and esbuild for server, outputting to `dist/`
 
@@ -42,6 +43,7 @@ Preferred communication style: Simple, everyday language.
   - `community_tags` — tags associated with communities
   - `community_links` — external links per community
   - `community_images` — images per community
+  - `email_subscribers` — email newsletter subscriptions
   - `discovery_runs` — tracking discovery pipeline executions
   - `refresh_runs` — tracking refresh pipeline executions
   - `conversations` / `messages` — chat integration tables

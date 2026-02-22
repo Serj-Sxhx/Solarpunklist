@@ -7,12 +7,14 @@ import {
   communityImages,
   discoveryRuns,
   refreshRuns,
+  emailSubscribers,
   type Community,
   type InsertCommunity,
   type CommunityWithRelations,
   type CommunityTag,
   type CommunityLink,
   type CommunityImage,
+  type EmailSubscriber,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -27,6 +29,7 @@ export interface IStorage {
   getImagesByCommunityId(communityId: string): Promise<CommunityImage[]>;
   getCommunityCount(): Promise<number>;
   getAllPublishedSlugs(): Promise<string[]>;
+  addEmailSubscriber(email: string): Promise<EmailSubscriber>;
 }
 
 async function enrichCommunity(community: Community): Promise<CommunityWithRelations> {
@@ -117,6 +120,22 @@ export class DatabaseStorage implements IStorage {
       .from(communities)
       .where(eq(communities.isPublished, true));
     return results.map((r) => r.slug);
+  }
+
+  async addEmailSubscriber(email: string): Promise<EmailSubscriber> {
+    const [subscriber] = await db
+      .insert(emailSubscribers)
+      .values({ email })
+      .onConflictDoNothing()
+      .returning();
+    if (!subscriber) {
+      const [existing] = await db
+        .select()
+        .from(emailSubscribers)
+        .where(eq(emailSubscribers.email, email));
+      return existing;
+    }
+    return subscriber;
   }
 }
 
