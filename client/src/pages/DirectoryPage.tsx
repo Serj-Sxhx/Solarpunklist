@@ -34,6 +34,7 @@ import {
   Globe,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import serjProfileImg from "@assets/Serj_Profile_Outdoors_1771748508511.png";
 import { useToast } from "@/hooks/use-toast";
 import type { CommunityWithRelations } from "@shared/schema";
 
@@ -351,6 +352,17 @@ export default function DirectoryPage() {
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     We consult on local-first AI data centers to run robots, drones, IoT and all solarpunk technology needs. From microgrids to mesh networks, we help communities build resilient tech infrastructure.
                   </p>
+                </div>
+
+                <div className="flex items-center gap-3 mb-4">
+                  <img
+                    src={serjProfileImg}
+                    alt="Serj Solarpunk"
+                    className="w-10 h-10 rounded-full object-cover shrink-0"
+                  />
+                  <span className="text-xs font-semibold text-foreground leading-tight">
+                    Built by<br />Serj Solarpunk
+                  </span>
                 </div>
 
                 <a
