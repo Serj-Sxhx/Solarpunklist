@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useSEO } from "@/hooks/useSEO";
 import {
   ArrowLeft,
@@ -20,7 +20,11 @@ import {
   Camera,
   X,
   ChevronLeft,
+  Share2,
+  Link2,
+  Check,
 } from "lucide-react";
+import { SiX, SiFacebook, SiLinkedin } from "react-icons/si";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -101,13 +105,17 @@ export default function CommunityDetailPage() {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
 
-        <div className="absolute top-4 left-4 sm:top-6 sm:left-6">
+        <div className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 flex items-center justify-between">
           <Link href="/">
             <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white backdrop-blur-sm">
               <ArrowLeft className="w-4 h-4 mr-1" />
               Back
             </Button>
           </Link>
+          <ShareButton
+            communityName={community.name}
+            score={Math.round(community.solarpunkScore ?? 0)}
+          />
         </div>
 
         <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 lg:p-8">
@@ -488,6 +496,105 @@ function PhotoGallery({
         </div>
       )}
     </>
+  );
+}
+
+function ShareButton({ communityName, score }: { communityName: string; score: number }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const shareUrl = window.location.href;
+  const shareText = `${communityName} — Solarpunk Score: ${score}/100. Discover regenerative communities on SolarpunkList`;
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: communityName, text: shareText, url: shareUrl });
+      } catch {}
+      return;
+    }
+    setOpen((prev) => !prev);
+  };
+
+  const copyLink = async () => {
+    await navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => { setCopied(false); setOpen(false); }, 1500);
+  };
+
+  const socialLinks = [
+    {
+      name: "X / Twitter",
+      icon: SiX,
+      url: `https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`,
+    },
+    {
+      name: "Facebook",
+      icon: SiFacebook,
+      url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`,
+    },
+    {
+      name: "LinkedIn",
+      icon: SiLinkedin,
+      url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`,
+    },
+  ];
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <Button
+        variant="outline"
+        size="sm"
+        className="bg-white/10 border-white/20 text-white backdrop-blur-sm"
+        onClick={handleShare}
+        data-testid="button-share"
+      >
+        <Share2 className="w-4 h-4 mr-1" />
+        Share
+      </Button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-52 bg-background border border-border rounded-lg shadow-lg overflow-hidden z-50" data-testid="share-dropdown">
+          <button
+            onClick={copyLink}
+            className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors"
+            data-testid="button-copy-link"
+          >
+            {copied ? <Check className="w-4 h-4 text-primary" /> : <Link2 className="w-4 h-4" />}
+            {copied ? "Copied!" : "Copy Link"}
+          </button>
+          {socialLinks.map((social) => {
+            const Icon = social.icon;
+            return (
+              <a
+                key={social.name}
+                href={social.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors"
+                data-testid={`link-share-${social.name.toLowerCase().replace(/\s.*/, "")}`}
+                onClick={() => setOpen(false)}
+              >
+                <Icon className="w-4 h-4" />
+                {social.name}
+              </a>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
