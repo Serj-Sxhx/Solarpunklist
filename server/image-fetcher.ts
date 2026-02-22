@@ -80,15 +80,26 @@ function isValidImageUrl(url: string): boolean {
   }
 
   const lower = url.toLowerCase();
-  if (lower.includes("favicon")) return false;
-  if (lower.includes("logo") && (lower.includes("16") || lower.includes("32") || lower.includes("icon"))) return false;
-  if (lower.endsWith(".svg")) return false;
-  if (lower.endsWith(".ico")) return false;
-  if (lower.includes("pixel") || lower.includes("tracking") || lower.includes("analytics")) return false;
-  if (lower.includes("1x1") || lower.includes("spacer")) return false;
-  if (lower.includes("gravatar.com")) return false;
-  if (lower.includes("wp-content/plugins")) return false;
+
+  const rejectPatterns = [
+    "favicon", "spacer", "pixel", "tracking", "analytics",
+    "1x1", "blank.jpg", "blank.png", "loading.gif", "loading.png",
+    "gravatar.com", "wp-content/plugins", "buddyicon",
+    "spaceout", "spaceball", "privacyoptions", "rss_icon",
+    "wikipedia-logo", "cross.png", "icon-phone", "icon-envelope",
+    "gettyimages.com",
+  ];
+  if (rejectPatterns.some((p) => lower.includes(p))) return false;
+
+  if (lower.includes("logo")) return false;
+
+  if (lower.endsWith(".svg") || lower.endsWith(".ico") || lower.endsWith(".gif")) return false;
+
+  const filename = lower.split("/").pop() || "";
+  if (filename.includes("icon") && !filename.includes("section")) return false;
+
   if (lower.includes("badge") && lower.includes("shield")) return false;
+
   return true;
 }
 
@@ -108,9 +119,10 @@ async function verifyImageUrl(url: string): Promise<boolean> {
 
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.startsWith("image/")) return false;
+    if (contentType.includes("gif") || contentType.includes("svg")) return false;
 
     const contentLength = response.headers.get("content-length");
-    if (contentLength && parseInt(contentLength) < 1000) return false;
+    if (contentLength && parseInt(contentLength) < 5000) return false;
 
     return true;
   } catch {

@@ -54,6 +54,13 @@ Preferred communication style: Simple, everyday language.
 - **Scheduling:** node-cron runs weekly discovery (Mondays at 3 AM UTC) and monthly refresh (1st of month at 4 AM UTC)
 - **Refresh Pipeline:** `server/refresh.ts` re-researches existing communities monthly via Exa + Claude to detect changes, dormancy, stage transitions
 - **Seed Data:** `server/seed.ts` contains hardcoded initial communities for bootstrapping
+- **Image Pipeline:** `server/image-fetcher.ts` uses Exa API to find real photos from community websites and web search results. Images are validated via HEAD request (content-type + minimum size), filtered against known bad patterns (logos, icons, GIFs, placeholders), and stored in `community_images` table. Backfill endpoint: `POST /api/admin/backfill-images`.
+
+### Image Fallback System
+- **AI-generated fallback images** for every community are stored at `client/public/images/communities/{slug}.png`
+- **Frontend fallback:** Both CommunityCard and CommunityDetailPage use `onError` handlers on `<img>` tags to swap to `/images/communities/{slug}.png` if external hero images fail to load
+- **Hero image selection:** During discovery, the first verified image becomes `heroImageUrl`. If no verified images are found, the frontend automatically falls back to the AI-generated image via the slug-based path convention
+- **Photo gallery:** Detail pages display all community images in a grid with lightbox. Gallery images that fail to load are hidden individually
 
 ### Scoring System
 Communities are scored on a 0-100 "Solarpunk Score" composed of six dimensions (each 0-10):

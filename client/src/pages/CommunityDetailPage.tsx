@@ -74,15 +74,18 @@ export default function CommunityDetailPage() {
   return (
     <div className="min-h-screen bg-background">
       <div className="relative h-[280px] sm:h-[360px] overflow-hidden">
-        {community.heroImageUrl ? (
-          <img
-            src={community.heroImageUrl}
-            alt={community.name}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-emerald-200 via-emerald-100 to-amber-100 dark:from-emerald-900/40 dark:via-emerald-800/20 dark:to-amber-900/20" />
-        )}
+        <img
+          src={community.heroImageUrl || `/images/communities/${community.slug}.png`}
+          alt={community.name}
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            const img = e.target as HTMLImageElement;
+            const fallback = `/images/communities/${community.slug}.png`;
+            if (img.src !== window.location.origin + fallback) {
+              img.src = fallback;
+            }
+          }}
+        />
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
 
         <div className="absolute top-4 left-4 sm:top-6 sm:left-6">

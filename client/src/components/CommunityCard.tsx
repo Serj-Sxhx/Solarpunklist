@@ -25,18 +25,19 @@ export function CommunityCard({ community }: CommunityCardProps) {
         data-testid={`card-community-${community.slug}`}
       >
         <div className="relative aspect-[16/10] rounded-t-xl overflow-hidden bg-muted">
-          {community.heroImageUrl ? (
-            <img
-              src={community.heroImageUrl}
-              alt={community.name}
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-              loading="lazy"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-100 to-emerald-200 dark:from-emerald-900/30 dark:to-emerald-800/20">
-              <span className="text-4xl opacity-40">🌿</span>
-            </div>
-          )}
+          <img
+            src={community.heroImageUrl || `/images/communities/${community.slug}.png`}
+            alt={community.name}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            loading="lazy"
+            onError={(e) => {
+              const img = e.target as HTMLImageElement;
+              const fallback = `/images/communities/${community.slug}.png`;
+              if (img.src !== window.location.origin + fallback) {
+                img.src = fallback;
+              }
+            }}
+          />
           <div className="absolute top-3 left-3">
             <StageBadge stage={community.stage} size="sm" />
           </div>
