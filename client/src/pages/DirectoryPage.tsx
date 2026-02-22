@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { CommunityCard } from "@/components/CommunityCard";
 import { CommunityCardSkeleton } from "@/components/CommunityCardSkeleton";
@@ -97,6 +97,14 @@ export default function DirectoryPage() {
   const [submitUrl, setSubmitUrl] = useState("");
   const [submitError, setSubmitError] = useState("");
   const { toast } = useToast();
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = true;
+      videoRef.current.volume = 0;
+    }
+  }, []);
 
   const { data: communities, isLoading } = useQuery<CommunityWithRelations[]>({
     queryKey: ["/api/communities"],
@@ -220,6 +228,7 @@ export default function DirectoryPage() {
     <div className="min-h-screen bg-background">
       <section className="relative overflow-hidden border-b border-border/40">
         <video
+          ref={videoRef}
           autoPlay
           loop
           muted
@@ -255,7 +264,7 @@ export default function DirectoryPage() {
                 data-testid="button-submit-project"
               >
                 <Plus className="w-4 h-4" />
-                Submit Your Project
+                Submit A Project
               </Button>
             </div>
 
