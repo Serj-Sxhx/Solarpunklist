@@ -30,8 +30,11 @@ import {
   Bot,
   Wifi,
   ExternalLink,
+  Plus,
+  Globe,
 } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { CommunityWithRelations } from "@shared/schema";
 
 const REGION_MAP: Record<string, string> = {
@@ -89,6 +92,10 @@ export default function DirectoryPage() {
 
   const [email, setEmail] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
+  const [showSubmit, setShowSubmit] = useState(false);
+  const [submitUrl, setSubmitUrl] = useState("");
+  const [submitError, setSubmitError] = useState("");
+  const { toast } = useToast();
 
   const { data: communities, isLoading } = useQuery<CommunityWithRelations[]>({
     queryKey: ["/api/communities"],
@@ -104,6 +111,55 @@ export default function DirectoryPage() {
       setShowSuccess(true);
     },
   });
+
+  const submitMutation = useMutation({
+    mutationFn: async (url: string) => {
+      const res = await apiRequest("POST", "/api/submit-community", { url });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to submit community");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setShowSubmit(false);
+      setSubmitUrl("");
+      setSubmitError("");
+      queryClient.invalidateQueries({ queryKey: ["/api/communities"] });
+      toast({
+        title: `${data.name} added!`,
+        description: "The community has been researched and added to the directory.",
+      });
+    },
+    onError: (error: Error) => {
+      setSubmitError(error.message);
+      toast({
+        title: "Submission failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSubmitCommunity = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitError("");
+    const trimmed = submitUrl.trim();
+    if (!trimmed) return;
+
+    try {
+      const parsed = new URL(trimmed);
+      if (!["http:", "https:"].includes(parsed.protocol)) {
+        setSubmitError("URL must start with http:// or https://");
+        return;
+      }
+    } catch {
+      setSubmitError("Please enter a valid URL (e.g. https://example.com)");
+      return;
+    }
+
+    submitMutation.mutate(trimmed);
+  };
 
   const handleSubscribe = (e: React.FormEvent) => {
     e.preventDefault();
@@ -180,6 +236,16 @@ export default function DirectoryPage() {
                 Explore solarpunk intentional communities and regenerative land projects.
                 Auto-discovered by AI, updated monthly, scored for sustainability.
               </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-4 gap-2"
+                onClick={() => { setShowSubmit(true); setSubmitUrl(""); setSubmitError(""); }}
+                data-testid="button-submit-project"
+              >
+                <Plus className="w-4 h-4" />
+                Submit Your Project
+              </Button>
             </div>
 
             <div className="lg:w-80 shrink-0">
@@ -304,6 +370,60 @@ export default function DirectoryPage() {
           </aside>
         </div>
       </main>
+
+      <Dialog open={showSubmit} onOpenChange={(open) => { if (!submitMutation.isPending) { setShowSubmit(open); setSubmitError(""); } }}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-submit">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Globe className="w-5 h-5 text-primary" />
+              Submit Your Project
+            </DialogTitle>
+            <DialogDescription>
+              Paste the URL of a solarpunk community or regenerative land project. Our AI will research it and add it to the directory.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmitCommunity} className="space-y-4">
+            <div>
+              <Input
+                type="url"
+                placeholder="https://example-community.org"
+                value={submitUrl}
+                onChange={(e) => { setSubmitUrl(e.target.value); setSubmitError(""); }}
+                disabled={submitMutation.isPending}
+                className="h-10"
+                autoFocus
+                data-testid="input-submit-url"
+              />
+              {submitError && (
+                <p className="text-sm text-destructive mt-2" data-testid="text-submit-error">{submitError}</p>
+              )}
+            </div>
+            <Button
+              type="submit"
+              className="w-full gap-2"
+              disabled={submitMutation.isPending || !submitUrl.trim()}
+              data-testid="button-submit-url"
+            >
+              {submitMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Researching community...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  Research & Add
+                </>
+              )}
+            </Button>
+            {submitMutation.isPending && (
+              <p className="text-xs text-muted-foreground text-center">
+                This may take 30–60 seconds while our AI researches the project.
+              </p>
+            )}
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showSuccess} onOpenChange={setShowSuccess}>
         <DialogContent className="sm:max-w-md" data-testid="dialog-success">

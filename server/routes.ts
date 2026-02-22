@@ -85,6 +85,44 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/submit-community", async (req, res) => {
+    try {
+      const { url } = req.body;
+      if (!url || typeof url !== "string") {
+        return res.status(400).json({ error: "A URL is required" });
+      }
+
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(url);
+        if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+          return res.status(400).json({ error: "URL must start with http:// or https://" });
+        }
+      } catch {
+        return res.status(400).json({ error: "Please enter a valid URL (e.g. https://example.com)" });
+      }
+
+      const blockedHostnames = ["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "metadata.google.internal", "169.254.169.254"];
+      const hostname = parsedUrl.hostname.toLowerCase();
+      if (
+        blockedHostnames.includes(hostname) ||
+        hostname.endsWith(".local") ||
+        hostname.endsWith(".internal") ||
+        /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(hostname)
+      ) {
+        return res.status(400).json({ error: "This URL cannot be used. Please provide a public website URL." });
+      }
+
+      const { researchFromUrl } = await import("./discovery");
+      const result = await researchFromUrl(parsedUrl.href);
+      res.json({ success: true, slug: result.slug, name: result.name });
+    } catch (error: any) {
+      console.error("Submit community error:", error);
+      const message = error?.message || "Something went wrong while researching this community.";
+      res.status(400).json({ error: message });
+    }
+  });
+
   app.post("/api/admin/seed", async (_req, res) => {
     try {
       const { seedCommunities } = await import("./seed");

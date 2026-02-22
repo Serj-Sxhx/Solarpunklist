@@ -29,6 +29,7 @@ Preferred communication style: Simple, everyday language.
   - `GET /api/communities/:slug` — single community detail
   - `GET /api/stats` — total community count
   - `POST /api/admin/discover` — trigger AI discovery pipeline
+  - `POST /api/submit-community` — public endpoint: accepts `{ url }`, runs Exa + Claude pipeline for a single URL, adds to directory (SSRF-protected)
   - `POST /api/subscribe` — email subscription (stores to `email_subscribers` table)
   - Chat/conversation endpoints under `/api/conversations`
 - **Build:** Custom build script (`script/build.ts`) using Vite for client and esbuild for server, outputting to `dist/`

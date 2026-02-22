@@ -207,6 +207,167 @@ IMPORTANT:
   }
 }
 
+export async function researchFromUrl(url: string): Promise<{
+  slug: string;
+  name: string;
+}> {
+  const apiKey = process.env.EXA_API_KEY;
+  if (!apiKey) {
+    throw new Error("EXA_API_KEY not configured — cannot research URLs");
+  }
+
+  let pageContent = "";
+  let pageTitle = "";
+  try {
+    const response = await fetch("https://api.exa.ai/contents", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        urls: [url],
+        text: { maxCharacters: 5000 },
+      }),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const result = data.results?.[0];
+      if (result) {
+        pageContent = result.text || "";
+        pageTitle = result.title || "";
+      }
+    }
+  } catch {}
+
+  if (!pageContent || pageContent.length < 50) {
+    try {
+      const resp = await fetch(url, {
+        headers: { "User-Agent": "SolarpunkListBot/1.0" },
+        signal: AbortSignal.timeout(10000),
+      });
+      const html = await resp.text();
+      pageContent = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").substring(0, 5000);
+      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+      if (titleMatch) pageTitle = titleMatch[1];
+    } catch {
+      throw new Error("Could not fetch content from this URL. Please check the URL and try again.");
+    }
+  }
+
+  if (pageContent.length < 50) {
+    throw new Error("Not enough content found at this URL to generate a community profile.");
+  }
+
+  const contextForLLM = `Title: ${pageTitle}\nURL: ${url}\nContent: ${pageContent}`;
+
+  const nameMsg = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1024,
+    messages: [
+      {
+        role: "user",
+        content: `Analyze this web page and determine if it represents an intentional community, ecovillage, regenerative land project, or similar solarpunk community.
+
+PAGE CONTENT:
+${contextForLLM}
+
+If this IS a community/project, return a JSON object: {"name": "Community Name", "is_community": true}
+If this is NOT a community/project, return: {"name": "", "is_community": false, "reason": "brief reason"}
+
+Return ONLY valid JSON.`,
+      },
+    ],
+  });
+
+  const nameContent = nameMsg.content[0];
+  if (nameContent.type !== "text") throw new Error("Failed to analyze the URL.");
+
+  const nameJson = JSON.parse(nameContent.text.match(/\{[\s\S]*\}/)?.[0] || "{}");
+  if (!nameJson.is_community) {
+    throw new Error(nameJson.reason || "This URL doesn't appear to be a solarpunk community or regenerative project.");
+  }
+
+  const communityName = nameJson.name;
+  const slug = slugify(communityName);
+
+  const existingSlugs = await storage.getAllPublishedSlugs();
+  if (existingSlugs.includes(slug)) {
+    throw new Error(`"${communityName}" is already in our directory!`);
+  }
+
+  const profile = await researchAndProfileCommunity(communityName, [url]);
+  if (!profile || !profile.name) {
+    throw new Error("Could not generate a profile for this community. Please try a different URL.");
+  }
+
+  const finalSlug = slugify(profile.name);
+  if (existingSlugs.includes(finalSlug)) {
+    throw new Error(`"${profile.name}" is already in our directory!`);
+  }
+
+  const solarpunkScore =
+    (profile.scores.energy.score * 20 +
+      profile.scores.land.score * 20 +
+      profile.scores.tech.score * 20 +
+      profile.scores.governance.score * 15 +
+      profile.scores.community.score * 15 +
+      profile.scores.circularity.score * 10) /
+    10;
+
+  const community = await storage.createCommunity({
+    name: profile.name,
+    slug: finalSlug,
+    tagline: profile.tagline,
+    overview: profile.overview,
+    locationCountry: profile.location_country,
+    locationRegion: profile.location_region,
+    locationLat: profile.location_lat ? parseFloat(profile.location_lat) : null,
+    locationLng: profile.location_lng ? parseFloat(profile.location_lng) : null,
+    stage: profile.stage,
+    population: profile.population,
+    foundedYear: profile.founded_year,
+    websiteUrl: profile.website_url || url,
+    solarpunkScore,
+    scoreEnergy: profile.scores.energy.score,
+    scoreLand: profile.scores.land.score,
+    scoreTech: profile.scores.tech.score,
+    scoreGovernance: profile.scores.governance.score,
+    scoreCommunity: profile.scores.community.score,
+    scoreCircularity: profile.scores.circularity.score,
+    techStack: profile.tech_stack,
+    communityLife: profile.community_life,
+    howToJoin: profile.how_to_join,
+    landDescription: profile.land_description,
+    aiConfidence: profile.ai_confidence,
+    sourcesCount: 1,
+    isPublished: true,
+    isFormingDisclaimer: profile.is_forming_disclaimer || false,
+    lastResearchedAt: new Date(),
+    lastRefreshedAt: new Date(),
+  });
+
+  if (profile.tags?.length) {
+    await storage.addTags(community.id, profile.tags);
+  }
+
+  if (profile.website_url || url) {
+    await storage.addLinks(community.id, [
+      { url: profile.website_url || url, title: "Official Website", type: "website" },
+    ]);
+  }
+
+  try {
+    await fetchAndStoreImages(community.id, profile.name, profile.website_url || url);
+  } catch (imgErr) {
+    console.error(`  Image fetch failed for ${profile.name}:`, imgErr);
+  }
+
+  console.log(`[submit] Added: ${profile.name} (score: ${solarpunkScore.toFixed(0)}, slug: ${finalSlug})`);
+
+  return { slug: finalSlug, name: profile.name };
+}
+
 export async function runDiscovery(): Promise<{
   queriesExecuted: number;
   resultsFound: number;
