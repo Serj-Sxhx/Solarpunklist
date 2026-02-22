@@ -239,7 +239,7 @@ export default function DirectoryPage() {
               <Button
                 variant="outline"
                 size="sm"
-                className="mt-4 gap-2"
+                className="mt-4 gap-2 bg-[#1dd66b] text-[#ffffff]"
                 onClick={() => { setShowSubmit(true); setSubmitUrl(""); setSubmitError(""); }}
                 data-testid="button-submit-project"
               >
