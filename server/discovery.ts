@@ -1,8 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { storage } from "./storage";
 import { db } from "./db";
-import { discoveryRuns, communities } from "@shared/schema";
-import { eq, sql } from "drizzle-orm";
+import { discoveryRuns } from "@shared/schema";
 
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
@@ -66,13 +65,77 @@ async function searchExa(query: string): Promise<any[]> {
   }
 }
 
-async function generateCommunityProfile(
-  name: string,
-  context: string
-): Promise<any | null> {
+async function extractCommunityNames(
+  searchResults: any[],
+  existingNames: string[]
+): Promise<{ name: string; sources: string[] }[]> {
+  const combinedContext = searchResults
+    .map((r: any) => `Title: ${r.title}\nURL: ${r.url}\nContent: ${(r.text || "").substring(0, 1500)}`)
+    .join("\n\n---\n\n");
+
   try {
     const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-5-20250514",
+      model: "claude-sonnet-4-6",
+      max_tokens: 4096,
+      messages: [
+        {
+          role: "user",
+          content: `You are a researcher finding intentional communities, ecovillages, and regenerative land projects. Analyze the following web search results and extract the names of SPECIFIC, REAL communities or projects mentioned.
+
+IMPORTANT: These communities ALREADY EXIST in our database, so DO NOT include them:
+${existingNames.map((n) => `- ${n}`).join("\n")}
+
+SEARCH RESULTS:
+${combinedContext}
+
+Return a JSON array of NEW communities NOT in the list above. Each entry should have:
+- "name": the official/common name of the community
+- "sources": array of URLs where this community was mentioned
+
+Rules:
+- Only include real, specific communities with a physical location
+- Do NOT include organizations, networks, or umbrella groups (e.g., "Global Ecovillage Network" is not a community)
+- Do NOT include any community already in the existing list above
+- Do NOT fabricate communities - they must be explicitly mentioned in the search results
+- Include at most 5 communities to keep quality high
+
+Return ONLY a valid JSON array like: [{"name": "Community Name", "sources": ["url1"]}]
+If no new communities are found, return: []`,
+        },
+      ],
+    });
+
+    const content = message.content[0];
+    if (content.type !== "text") return [];
+
+    const jsonMatch = content.text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return [];
+
+    return JSON.parse(jsonMatch[0]);
+  } catch (error) {
+    console.error("Community extraction error:", error);
+    return [];
+  }
+}
+
+async function researchAndProfileCommunity(
+  name: string,
+  initialSources: string[]
+): Promise<any | null> {
+  const additionalResults = await searchExa(`"${name}" intentional community ecovillage`);
+
+  const allContext = additionalResults
+    .map((r: any) => `Title: ${r.title}\nURL: ${r.url}\nContent: ${r.text || ""}`)
+    .join("\n\n---\n\n");
+
+  if (!allContext || allContext.length < 100) {
+    console.log(`  Skipping ${name} - insufficient research data`);
+    return null;
+  }
+
+  try {
+    const message = await anthropic.messages.create({
+      model: "claude-sonnet-4-6",
       max_tokens: 8192,
       messages: [
         {
@@ -80,7 +143,7 @@ async function generateCommunityProfile(
           content: `You are a researcher specializing in intentional communities, ecovillages, and regenerative land projects. Based on the following research about "${name}", generate a comprehensive community profile.
 
 RESEARCH CONTEXT:
-${context}
+${allContext}
 
 Generate a JSON object with these fields:
 {
@@ -92,6 +155,8 @@ Generate a JSON object with these fields:
   "population": number or null,
   "location_country": "Country name",
   "location_region": "State/Province/Region",
+  "location_lat": number or null,
+  "location_lng": number or null,
   "website_url": "primary website URL or null",
   "scores": {
     "energy": { "score": 0-10, "reasoning": "brief explanation" },
@@ -154,18 +219,20 @@ export async function runDiscovery(): Promise<{
   let newCommunitiesAdded = 0;
 
   const existingSlugs = await storage.getAllPublishedSlugs();
-  const existingNames = new Set(
-    existingSlugs.map((s) => s.replace(/-/g, " ").toLowerCase())
-  );
+  const allCommunities = await storage.getCommunities();
+  const existingNames = allCommunities.map((c) => c.name);
 
-  const queriesToRun = DISCOVERY_QUERIES.slice(0, 5);
+  const selectedQueries = DISCOVERY_QUERIES.sort(() => Math.random() - 0.5).slice(0, 5);
   const allResults: any[] = [];
 
-  for (const query of queriesToRun) {
+  console.log(`[discovery] Running ${selectedQueries.length} search queries...`);
+
+  for (const query of selectedQueries) {
     try {
       const results = await searchExa(query);
       allResults.push(...results);
       resultsFound += results.length;
+      console.log(`  Query "${query.substring(0, 40)}..." returned ${results.length} results`);
     } catch (error) {
       errors.push(`Search failed for query "${query}": ${error}`);
     }
@@ -178,23 +245,34 @@ export async function runDiscovery(): Promise<{
     }
   }
 
-  for (const [url, result] of uniqueResults) {
-    try {
-      const title = result.title || "";
-      const potentialSlug = slugify(title);
+  console.log(`[discovery] ${uniqueResults.size} unique URLs from ${resultsFound} total results`);
+  console.log(`[discovery] Extracting community names (excluding ${existingNames.length} existing)...`);
 
-      if (existingNames.has(title.toLowerCase()) || existingSlugs.includes(potentialSlug)) {
+  const newCommunities = await extractCommunityNames(
+    Array.from(uniqueResults.values()),
+    existingNames
+  );
+
+  console.log(`[discovery] Found ${newCommunities.length} potential new communities`);
+
+  for (const candidate of newCommunities) {
+    try {
+      const slug = slugify(candidate.name);
+      if (existingSlugs.includes(slug)) {
+        console.log(`  Skipping "${candidate.name}" - slug already exists`);
         duplicatesSkipped++;
         continue;
       }
 
-      const context = `Title: ${result.title}\nURL: ${result.url}\nContent: ${result.text || "No content available"}`;
+      console.log(`  Researching: ${candidate.name}...`);
+      const profile = await researchAndProfileCommunity(candidate.name, candidate.sources);
+      if (!profile || !profile.name) {
+        console.log(`  Could not generate profile for ${candidate.name}`);
+        continue;
+      }
 
-      const profile = await generateCommunityProfile(title, context);
-      if (!profile || !profile.name) continue;
-
-      const slug = slugify(profile.name);
-      if (existingSlugs.includes(slug)) {
+      const finalSlug = slugify(profile.name);
+      if (existingSlugs.includes(finalSlug)) {
         duplicatesSkipped++;
         continue;
       }
@@ -210,11 +288,13 @@ export async function runDiscovery(): Promise<{
 
       const community = await storage.createCommunity({
         name: profile.name,
-        slug,
+        slug: finalSlug,
         tagline: profile.tagline,
         overview: profile.overview,
         locationCountry: profile.location_country,
         locationRegion: profile.location_region,
+        locationLat: profile.location_lat ? parseFloat(profile.location_lat) : null,
+        locationLng: profile.location_lng ? parseFloat(profile.location_lng) : null,
         stage: profile.stage,
         population: profile.population,
         foundedYear: profile.founded_year,
@@ -231,9 +311,9 @@ export async function runDiscovery(): Promise<{
         howToJoin: profile.how_to_join,
         landDescription: profile.land_description,
         aiConfidence: profile.ai_confidence,
-        sourcesCount: 1,
-        isPublished: profile.ai_confidence > 0.7,
-        isFormingDisclaimer: profile.is_forming_disclaimer,
+        sourcesCount: candidate.sources.length + 5,
+        isPublished: true,
+        isFormingDisclaimer: profile.is_forming_disclaimer || false,
         lastResearchedAt: new Date(),
         lastRefreshedAt: new Date(),
       });
@@ -248,16 +328,17 @@ export async function runDiscovery(): Promise<{
         ]);
       }
 
-      existingSlugs.push(slug);
-      existingNames.add(profile.name.toLowerCase());
+      existingSlugs.push(finalSlug);
+      existingNames.push(profile.name);
       newCommunitiesAdded++;
+      console.log(`  Added: ${profile.name} (score: ${solarpunkScore.toFixed(0)}, confidence: ${profile.ai_confidence})`);
     } catch (error) {
-      errors.push(`Processing failed for ${url}: ${error}`);
+      errors.push(`Processing failed for ${candidate.name}: ${error}`);
     }
   }
 
   await db.insert(discoveryRuns).values({
-    queriesExecuted: queriesToRun.length,
+    queriesExecuted: selectedQueries.length,
     resultsFound,
     duplicatesSkipped,
     newCommunitiesAdded,
@@ -266,11 +347,11 @@ export async function runDiscovery(): Promise<{
   });
 
   console.log(
-    `Discovery complete: ${queriesToRun.length} queries, ${resultsFound} results, ${duplicatesSkipped} duplicates, ${newCommunitiesAdded} new communities`
+    `[discovery] Complete: ${selectedQueries.length} queries, ${resultsFound} results, ${duplicatesSkipped} duplicates, ${newCommunitiesAdded} new communities`
   );
 
   return {
-    queriesExecuted: queriesToRun.length,
+    queriesExecuted: selectedQueries.length,
     resultsFound,
     duplicatesSkipped,
     newCommunitiesAdded,
