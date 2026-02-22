@@ -1,0 +1,296 @@
+# SolarpunkList — Build Prompt
+
+## What You're Building
+
+SolarpunkList is a web directory of solarpunk intentional communities and regenerative land projects. Think Nomad List (nomads.com) but for ecovillages and tech-forward regenerative communities. The app auto-discovers new communities weekly via AI-powered web search, generates rich detail pages using an LLM, and refreshes all existing entries monthly to keep data current.
+
+No user auth in V1. No upvoting yet. Just the automated pipeline and the directory UI.
+
+## Stack
+
+- **Frontend:** Next.js 14+ (App Router), Tailwind CSS, shadcn/ui
+- **Database:** Supabase (Postgres + Storage for images)
+- **Search API:** Exa Search API (exa.ai) — semantic web search + content extraction
+- **Scraping supplement:** Firecrawl (for deep crawls when Exa contents aren't enough)
+- **LLM:** Anthropic Claude API (claude-sonnet-4-5-20250929) for profile generation
+- **Scheduler:** Vercel Cron Jobs (weekly discovery + monthly refresh)
+- **Deployment:** Vercel
+
+## Database Schema (Core Tables)
+
+### `communities`
+```sql
+id UUID PK DEFAULT gen_random_uuid(),
+name TEXT NOT NULL,
+slug TEXT UNIQUE NOT NULL,
+tagline TEXT,
+overview TEXT, -- markdown
+location_country TEXT,
+location_region TEXT,
+location_lat FLOAT,
+location_lng FLOAT,
+stage TEXT CHECK (stage IN ('forming', 'established', 'mature', 'dormant')),
+stage_changed_at TIMESTAMPTZ,
+stage_change_reason TEXT,
+population INT,
+founded_year INT,
+website_url TEXT,
+website_last_http_status INT,
+website_content_hash TEXT,
+hero_image_url TEXT,
+solarpunk_score FLOAT, -- 0-100
+score_energy FLOAT, -- 0-10
+score_land FLOAT,
+score_tech FLOAT,
+score_governance FLOAT,
+score_community FLOAT,
+score_circularity FLOAT,
+tech_stack JSONB,
+community_life TEXT, -- markdown
+how_to_join TEXT, -- markdown
+land_description TEXT, -- markdown
+ai_confidence FLOAT, -- 0-1
+sources_count INT DEFAULT 0,
+last_researched_at TIMESTAMPTZ,
+last_refreshed_at TIMESTAMPTZ,
+refresh_count INT DEFAULT 0,
+refresh_tier INT CHECK (refresh_tier IN (1,2,3,4,5)),
+is_published BOOLEAN DEFAULT false,
+is_forming_disclaimer BOOLEAN DEFAULT false,
+upvote_count INT DEFAULT 0,
+created_at TIMESTAMPTZ DEFAULT now(),
+updated_at TIMESTAMPTZ DEFAULT now()
+```
+
+### `community_images`
+```sql
+id UUID PK, community_id UUID FK, image_url TEXT, alt_text TEXT,
+source_url TEXT, is_hero BOOLEAN, sort_order INT, created_at TIMESTAMPTZ
+```
+
+### `community_tags`
+```sql
+id UUID PK, community_id UUID FK, tag TEXT
+```
+
+### `community_links`
+```sql
+id UUID PK, community_id UUID FK, url TEXT, title TEXT,
+type TEXT CHECK (type IN ('website','social','video','article','press','other'))
+```
+
+### `discovery_runs`
+```sql
+id UUID PK, run_date TIMESTAMPTZ, queries_executed INT, results_found INT,
+duplicates_skipped INT, new_communities_added INT, errors JSONB
+```
+
+### `refresh_runs`
+```sql
+id UUID PK, run_date TIMESTAMPTZ, communities_checked INT,
+content_changes_detected INT, stage_changes INT, full_re_researches INT,
+dormant_flagged INT, new_images_found INT, total_api_cost_estimate FLOAT, errors JSONB
+```
+
+### `refresh_log`
+```sql
+id UUID PK, community_id UUID FK, refresh_run_id UUID FK, refreshed_at TIMESTAMPTZ,
+liveness_status TEXT CHECK (liveness_status IN ('alive','degraded','down')),
+content_changed BOOLEAN, stage_before TEXT, stage_after TEXT,
+sections_updated TEXT[], new_images_count INT, new_sources_found INT,
+score_before FLOAT, score_after FLOAT, change_summary TEXT
+```
+
+### `stage_transitions`
+```sql
+id UUID PK, community_id UUID FK, from_stage TEXT, to_stage TEXT,
+reason TEXT, detected_at TIMESTAMPTZ, auto_applied BOOLEAN
+```
+
+## Build Order
+
+### Phase 1: Foundation (do this first)
+1. Init Next.js project with App Router, Tailwind, shadcn/ui
+2. Set up Supabase project, run the schema above
+3. Create the Supabase storage bucket for community images
+4. Build the directory page at `/` — card grid layout (responsive: 1 col mobile, 2 col tablet, 3 col desktop)
+5. Build the detail page at `/community/[slug]`
+6. Seed 3-5 communities manually to get the UI right before automating
+
+### Phase 2: Discovery Engine
+Build as a serverless function (Vercel API route or Edge Function) triggered by Vercel Cron.
+
+**Weekly Discovery Flow:**
+1. Execute 10-20 Exa searches with these query patterns:
+   - "intentional community regenerative technology solar off-grid"
+   - "ecovillage IoT sensors permaculture smart grid"
+   - "solarpunk land project decentralized infrastructure"
+   - "regenerative community robotics automation green energy"
+   - "off-grid community drone agriculture water recycling"
+   - "community land trust renewable energy food forest tech"
+   - "cooperative ecovillage blockchain governance solar"
+   - "earth-ship community aquaponics renewable"
+   - (vary and rotate queries each week)
+2. Also monitor: ic.org/directory, ecovillage.org, numundo.org, Reddit r/solarpunk
+3. Deduplicate against existing DB entries (fuzzy match on name + geo proximity)
+4. For each new unique community:
+   - Crawl primary website via Exa contents API (or Firecrawl for JS-heavy sites)
+   - Run secondary searches for news, social media, YouTube about the community
+   - Collect all discoverable images
+   - Send everything to Claude with a structured prompt (see below)
+   - Save to DB, upload images to Supabase Storage
+   - Set `is_published = true` if `ai_confidence > 0.7`, otherwise flag for review
+
+### Phase 3: Monthly Refresh Engine
+Separate cron job, runs 1st of each month. For every existing community:
+
+1. **Liveness check** — HTTP ping the website. Record status.
+2. **Content diff** — Re-crawl and compare hash against `website_content_hash`. Flag if changed.
+3. **News scan** — Exa search scoped to past 30 days for "[community name]"
+4. **Stage evaluation** — LLM reviews evidence and current stage. Recommends stage change if warranted.
+5. **Partial regeneration** — If significant changes detected, regenerate only the affected sections (not entire profile). Update images if new ones found. Recalculate Solarpunk Score if tech/land/governance changed.
+6. **Log everything** to `refresh_runs` and `refresh_log`. Record any stage transitions in `stage_transitions`.
+
+**Refresh tiers (prioritization):**
+- Tier 1 (monthly, full): Forming communities
+- Tier 2 (monthly, full): Communities with recent content changes
+- Tier 3 (monthly, light): Established communities — liveness + news scan, full re-research only if change detected
+- Tier 4 (monthly, light): Mature communities — same as Tier 3, full re-research quarterly
+- Tier 5 (quarterly): Dormant communities — check for reactivation
+
+### Phase 4: Detail Pages & Polish
+Flesh out the detail page with all sections:
+
+1. **Photo Gallery** — carousel or masonry grid, 6-20 images
+2. **Overview** — 2-3 paragraph editorial summary
+3. **Solarpunk Score** — visual scorecard with 6 dimensions (see below)
+4. **Technology Stack** — categorized: Energy, Water, Food, Shelter, Digital, Governance
+5. **The Land** — acreage, terrain, climate, stewardship approach, map embed
+6. **Community Life** — governance, daily life, economics, culture
+7. **How to Visit/Join** — visitor policy, membership process, costs
+8. **Links & Resources** — all discovered links
+9. **AI Confidence Badge** — transparency: sources count, last updated, confidence score
+
+## Solarpunk Score (0-100, weighted)
+
+| Dimension | Weight | What it measures |
+|-----------|--------|-----------------|
+| ☀ Renewable Energy | 20% | Solar, wind, hydro, biogas, grid independence |
+| 🌱 Regenerative Land | 20% | Permaculture, food forests, biodiversity, water mgmt |
+| 🤖 Tech Innovation | 20% | IoT, automation, robotics, decentralized infra, open-source |
+| 🏛 Governance | 15% | Decentralized decision-making, transparency, cooperativism |
+| 👥 Community | 15% | Size, diversity, education, openness, knowledge sharing |
+| 🔄 Circularity | 10% | Waste mgmt, composting, closed-loop systems, local economy |
+
+Score = weighted sum × 10 (so max 100). LLM rates each 0-10 with cited evidence.
+
+## Lifecycle Stages (critical — surface these prominently)
+
+| Stage | Badge Color | Criteria |
+|-------|------------|---------|
+| 🌱 Forming | Amber/Yellow | Pre-land or very early. Active group + public presence (3+ months) but no permanent residents/structures yet. |
+| 🌿 Established | Green | Has land, has residents, 1-10 years operating. |
+| 🌳 Mature | Deep Green | 10+ years continuous operation, stable. |
+| 🍂 Dormant | Gray | Website down + no social activity 6+ months. Kept in directory but flagged, excluded from default sort. |
+
+Forming communities: show an amber badge on the card, display a "Forming Community" disclaimer on the detail page, exclude from default "Top Rated" sort, auto-flag as Dormant after 3 months of no activity.
+
+## Card Design (Nomad List style)
+
+Each card shows:
+- Hero image (full width top)
+- Community name + one-line tagline
+- Location (country flag + region)
+- Solarpunk Score (0-100 with color: green >70, amber 40-70, red <40)
+- Up to 4 tech/value tags as pills
+- Lifecycle stage badge (colored)
+- "Last verified: [date]" subtle text
+- Upvote count placeholder (non-functional V1)
+
+## Filters
+
+- **Region:** North America, South America, Europe, Africa, Asia, Oceania (multi-select)
+- **Technology:** Solar/Wind, IoT/Sensors, Robotics, Aquaponics, Blockchain/DAO, Water Systems, Drones, AI/Automation, Biogas, Mycelium Tech
+- **Stage:** Forming, Established, Mature, Dormant
+- **Values:** Open Source, Decentralized Governance, Indigenous Practices, BIPOC-Led, Family-Friendly, Visitors Welcome, Accepting Members
+- **Size:** Small (<20), Medium (20-100), Large (100+)
+- **Sort:** Solarpunk Score, Newest Added, Alphabetical
+
+## LLM Prompt Structure (for profile generation)
+
+When calling Claude to generate a community profile, send all collected research (website text, news articles, social posts, etc.) as context, then ask it to return a JSON object with:
+
+```json
+{
+  "name": "",
+  "tagline": "One compelling sentence",
+  "overview": "2-3 paragraphs, editorial tone, markdown",
+  "stage": "forming|established|mature",
+  "founded_year": null,
+  "population": null,
+  "scores": {
+    "energy": { "score": 0, "reasoning": "" },
+    "land": { "score": 0, "reasoning": "" },
+    "tech": { "score": 0, "reasoning": "" },
+    "governance": { "score": 0, "reasoning": "" },
+    "community": { "score": 0, "reasoning": "" },
+    "circularity": { "score": 0, "reasoning": "" }
+  },
+  "tech_stack": {
+    "energy": [],
+    "water": [],
+    "food": [],
+    "shelter": [],
+    "digital": [],
+    "governance": []
+  },
+  "land_description": "markdown",
+  "community_life": "markdown",
+  "how_to_join": "markdown",
+  "tags": ["Solar Microgrid", "Permaculture", ...],
+  "ai_confidence": 0.0-1.0,
+  "is_forming_disclaimer": true/false
+}
+```
+
+Instruct the model to: cite evidence for every score, default to lower scores when info is sparse, never fabricate details, and flag when information is uncertain.
+
+## Seed Communities (run the pipeline on these first)
+
+1. Dancing Rabbit Ecovillage — Missouri, USA
+2. Earthaven Ecovillage — North Carolina, USA
+3. Crystal Waters — Queensland, Australia
+4. Tamera Peace Research Village — Alentejo, Portugal
+5. Auroville — Tamil Nadu, India
+6. Damanhur — Piedmont, Italy
+7. Aardehuizen — Olst, Netherlands
+8. Findhorn Foundation — Moray, Scotland
+9. EcoVillage at Ithaca — New York, USA
+10. Acorn Land Labs — Colorado, USA
+11. Kirra Ecovillage — Australia
+12. Solar Punk Farms — USA
+13. Twin Oaks Community — Virginia, USA
+14. Breitenbush Hot Springs — Oregon, USA
+15. Freedom Cove — British Columbia, Canada
+
+## Environment Variables Needed
+
+```
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+EXA_API_KEY=
+ANTHROPIC_API_KEY=
+FIRECRAWL_API_KEY= (optional)
+```
+
+## What "Done" Looks Like for V1
+
+- [ ] Directory page loads with 30+ communities as filterable cards
+- [ ] Clicking a card opens a rich detail page with gallery, scores, tech stack, all sections
+- [ ] Weekly cron discovers and adds new communities automatically
+- [ ] Monthly cron refreshes all existing entries, updates stages, flags dormant
+- [ ] Forming communities are clearly tagged and disclaimered
+- [ ] "Last verified" date visible on every card
+- [ ] Mobile responsive
+- [ ] Fast (SSR + ISR for detail pages)

@@ -1,0 +1,151 @@
+{
+  "colorScheme": "light",
+  "fonts": [
+    {
+      "family": "Nunito",
+      "role": "body"
+    },
+    {
+      "family": "Helvetica Neue",
+      "role": "body"
+    }
+  ],
+  "colors": {
+    "primary": "#2BDE73",
+    "accent": "#FF4742",
+    "background": "#FBFAF8",
+    "textPrimary": "#FF4742",
+    "link": "#FF4742"
+  },
+  "typography": {
+    "fontFamilies": {
+      "primary": "Nunito",
+      "heading": "Nunito"
+    },
+    "fontStacks": {
+      "heading": [
+        "-apple-system",
+        "system-ui",
+        "Segoe UI",
+        "sans-serif"
+      ],
+      "body": [
+        "-apple-system",
+        "system-ui",
+        "Segoe UI",
+        "sans-serif"
+      ],
+      "paragraph": [
+        "-apple-system",
+        "system-ui",
+        "Segoe UI",
+        "sans-serif"
+      ]
+    },
+    "fontSizes": {
+      "h1": "25.6px",
+      "h2": "26px",
+      "body": "16px"
+    }
+  },
+  "spacing": {
+    "baseUnit": 4,
+    "borderRadius": "12px"
+  },
+  "components": {
+    "input": {
+      "background": "#FFFFFF",
+      "textColor": "#000000",
+      "borderColor": null,
+      "borderRadius": "12px",
+      "borderRadiusCorners": {
+        "topLeft": "12px",
+        "topRight": "12px",
+        "bottomRight": "12px",
+        "bottomLeft": "12px"
+      },
+      "shadow": "rgb(221, 221, 221) 0px 0px 0px 1px"
+    },
+    "buttonPrimary": {
+      "background": "#FF4742",
+      "textColor": "#FFFFFF",
+      "borderColor": "#FF4742",
+      "borderRadius": "12px",
+      "borderRadiusCorners": {
+        "topLeft": "12px",
+        "topRight": "12px",
+        "bottomRight": "12px",
+        "bottomLeft": "12px"
+      },
+      "shadow": "rgba(0, 0, 0, 0.1) 1px 2px 4px 0px"
+    },
+    "buttonSecondary": {
+      "background": "#FFFFFF",
+      "textColor": "#1C1C1C",
+      "borderColor": "#DDDDDD",
+      "borderRadius": "12px",
+      "borderRadiusCorners": {
+        "topLeft": "12px",
+        "topRight": "12px",
+        "bottomRight": "12px",
+        "bottomLeft": "12px"
+      },
+      "shadow": "rgba(0, 0, 0, 0.1) 0px 1px 2px 0px"
+    }
+  },
+  "images": {
+    "logo": "https://nomads.com/assets/logo.svg",
+    "favicon": "File saved at: attached_assets/favicon.webp",
+    "ogImage": "https://url2og.com/?url=https%3A%2F%2Fnomads.com%2F",
+    "logoAlt": "Nomads.com"
+  },
+  "__llm_logo_reasoning": {
+    "selectedIndex": 1,
+    "reasoning": "Selected #1 because it is a medium-sized logo with alt text matching the brand 'Nomads.com', and it is the most prominent representation of the brand.",
+    "confidence": 0.85,
+    "source": "llm"
+  },
+  "__llm_button_reasoning": {
+    "primary": {
+      "index": 0,
+      "text": "Join Nomads.com →",
+      "reasoning": "Button #0 uses the vibrant brand color #FF4742 and has action-oriented text 'Join Nomads.com →', making it the primary CTA."
+    },
+    "secondary": {
+      "index": 3,
+      "text": "Compare",
+      "reasoning": "Button #3 has a different background color (#FFFFFF) and serves a secondary function with the text 'Compare'."
+    },
+    "confidence": 0.95
+  },
+  "personality": {
+    "tone": "modern",
+    "energy": "high",
+    "targetAudience": "digital nomads and remote workers"
+  },
+  "designSystem": {
+    "framework": "custom",
+    "componentLibrary": ""
+  },
+  "confidence": {
+    "buttons": 0.95,
+    "colors": 0.9,
+    "overall": 0.925
+  },
+  "__llm_metadata": {
+    "logoSelection": {
+      "llmCalled": true,
+      "llmSucceeded": true,
+      "finalSource": "llm",
+      "rawLogoSelection": {
+        "selectedLogoIndex": 1,
+        "selectedLogoReasoning": "Selected #1 because it is a medium-sized logo with alt text matching the brand 'Nomads.com', and it is the most prominent representation of the brand.",
+        "confidence": 0.85
+      }
+    },
+    "buttonClassification": {
+      "llmCalled": true,
+      "llmSucceeded": true
+    }
+  }
+}
