@@ -60,6 +60,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Seed database on startup if empty
+  try {
+    const { seedCommunities } = await import("./seed");
+    await seedCommunities();
+  } catch (error) {
+    console.error("Seed error:", error);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -98,6 +106,12 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+
+      import("./scheduler").then(({ startScheduler }) => {
+        startScheduler();
+      }).catch((error) => {
+        console.error("Scheduler setup error:", error);
+      });
     },
   );
 })();

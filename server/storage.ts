@@ -1,38 +1,118 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { eq, desc, asc, ilike, and, inArray, sql } from "drizzle-orm";
+import { db } from "./db";
+import {
+  communities,
+  communityTags,
+  communityLinks,
+  communityImages,
+  discoveryRuns,
+  refreshRuns,
+  type Community,
+  type InsertCommunity,
+  type CommunityWithRelations,
+  type CommunityTag,
+  type CommunityLink,
+  type CommunityImage,
+} from "@shared/schema";
 
 export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  getCommunities(): Promise<CommunityWithRelations[]>;
+  getCommunityBySlug(slug: string): Promise<CommunityWithRelations | undefined>;
+  getCommunityById(id: string): Promise<Community | undefined>;
+  createCommunity(data: InsertCommunity): Promise<Community>;
+  updateCommunity(id: string, data: Partial<InsertCommunity>): Promise<Community | undefined>;
+  addTags(communityId: string, tags: string[]): Promise<CommunityTag[]>;
+  addLinks(communityId: string, links: { url: string; title?: string; type?: string }[]): Promise<CommunityLink[]>;
+  addImages(communityId: string, images: { imageUrl: string; altText?: string; isHero?: boolean; sortOrder?: number }[]): Promise<CommunityImage[]>;
+  getCommunityCount(): Promise<number>;
+  getAllPublishedSlugs(): Promise<string[]>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
+async function enrichCommunity(community: Community): Promise<CommunityWithRelations> {
+  const [tags, links, images] = await Promise.all([
+    db.select().from(communityTags).where(eq(communityTags.communityId, community.id)),
+    db.select().from(communityLinks).where(eq(communityLinks.communityId, community.id)),
+    db.select().from(communityImages).where(eq(communityImages.communityId, community.id)),
+  ]);
 
-  constructor() {
-    this.users = new Map();
+  return { ...community, tags, links, images };
+}
+
+export class DatabaseStorage implements IStorage {
+  async getCommunities(): Promise<CommunityWithRelations[]> {
+    const allCommunities = await db
+      .select()
+      .from(communities)
+      .where(eq(communities.isPublished, true))
+      .orderBy(desc(communities.solarpunkScore));
+
+    return Promise.all(allCommunities.map(enrichCommunity));
   }
 
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+  async getCommunityBySlug(slug: string): Promise<CommunityWithRelations | undefined> {
+    const [community] = await db
+      .select()
+      .from(communities)
+      .where(eq(communities.slug, slug));
+
+    if (!community) return undefined;
+    return enrichCommunity(community);
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+  async getCommunityById(id: string): Promise<Community | undefined> {
+    const [community] = await db
+      .select()
+      .from(communities)
+      .where(eq(communities.id, id));
+    return community;
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+  async createCommunity(data: InsertCommunity): Promise<Community> {
+    const [community] = await db.insert(communities).values(data).returning();
+    return community;
+  }
+
+  async updateCommunity(id: string, data: Partial<InsertCommunity>): Promise<Community | undefined> {
+    const [community] = await db
+      .update(communities)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(communities.id, id))
+      .returning();
+    return community;
+  }
+
+  async addTags(communityId: string, tags: string[]): Promise<CommunityTag[]> {
+    if (tags.length === 0) return [];
+    const values = tags.map((tag) => ({ communityId, tag }));
+    return db.insert(communityTags).values(values).returning();
+  }
+
+  async addLinks(communityId: string, links: { url: string; title?: string; type?: string }[]): Promise<CommunityLink[]> {
+    if (links.length === 0) return [];
+    const values = links.map((link) => ({ communityId, ...link }));
+    return db.insert(communityLinks).values(values).returning();
+  }
+
+  async addImages(communityId: string, images: { imageUrl: string; altText?: string; isHero?: boolean; sortOrder?: number }[]): Promise<CommunityImage[]> {
+    if (images.length === 0) return [];
+    const values = images.map((img) => ({ communityId, ...img }));
+    return db.insert(communityImages).values(values).returning();
+  }
+
+  async getCommunityCount(): Promise<number> {
+    const [result] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(communities);
+    return Number(result?.count ?? 0);
+  }
+
+  async getAllPublishedSlugs(): Promise<string[]> {
+    const results = await db
+      .select({ slug: communities.slug })
+      .from(communities)
+      .where(eq(communities.isPublished, true));
+    return results.map((r) => r.slug);
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
