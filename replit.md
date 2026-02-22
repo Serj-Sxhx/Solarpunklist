@@ -69,9 +69,17 @@ Preferred communication style: Simple, everyday language.
 Communities are scored on a 0-100 "Solarpunk Score" composed of six dimensions (each 0-10):
 - Energy, Land, Tech, Governance, Community, Circularity
 
+### Email Notifications
+- **Provider:** Resend (via Replit connector integration)
+- **Module:** `server/email-notifications.ts` — HTML + text email templates, batched sending via Resend API
+- **Trigger:** `notifySubscribers()` is called (fire-and-forget) whenever a new community is added — both from user submissions (`researchFromUrl`) and auto-discovery (`runDiscovery`)
+- **Template:** Green-branded announcement email with community name, tagline, location, stage, score, and "View Full Profile" CTA button
+- **Batching:** Sends in batches of 50 with per-recipient failure logging
+
 ### Replit Integrations
 - `server/replit_integrations/chat/` — Chat functionality with Anthropic Claude
 - `server/replit_integrations/batch/` — Batch processing utilities for Anthropic API calls
+- Resend connector for transactional email (subscriber notifications)
 - Vite plugins: `@replit/vite-plugin-runtime-error-modal`, `@replit/vite-plugin-cartographer`, `@replit/vite-plugin-dev-banner`
 
 ## External Dependencies

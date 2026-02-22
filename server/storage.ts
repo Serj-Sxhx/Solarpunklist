@@ -30,6 +30,7 @@ export interface IStorage {
   getCommunityCount(): Promise<number>;
   getAllPublishedSlugs(): Promise<string[]>;
   addEmailSubscriber(email: string): Promise<EmailSubscriber>;
+  getAllSubscriberEmails(): Promise<string[]>;
 }
 
 async function enrichCommunity(community: Community): Promise<CommunityWithRelations> {
@@ -136,6 +137,12 @@ export class DatabaseStorage implements IStorage {
       return existing;
     }
     return subscriber;
+  }
+  async getAllSubscriberEmails(): Promise<string[]> {
+    const results = await db
+      .select({ email: emailSubscribers.email })
+      .from(emailSubscribers);
+    return results.map((r) => r.email);
   }
 }
 

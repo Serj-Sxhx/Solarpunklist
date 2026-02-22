@@ -3,6 +3,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { discoveryRuns } from "@shared/schema";
 import { fetchAndStoreImages } from "./image-fetcher";
+import { notifySubscribers } from "./email-notifications";
 
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
@@ -365,6 +366,16 @@ Return ONLY valid JSON.`,
 
   console.log(`[submit] Added: ${profile.name} (score: ${solarpunkScore.toFixed(0)}, slug: ${finalSlug})`);
 
+  notifySubscribers({
+    name: profile.name,
+    slug: finalSlug,
+    tagline: profile.tagline,
+    locationCountry: profile.location_country,
+    locationRegion: profile.location_region,
+    solarpunkScore,
+    stage: profile.stage,
+  }).catch((err) => console.error("[email] notification error:", err));
+
   return { slug: finalSlug, name: profile.name };
 }
 
@@ -500,6 +511,16 @@ export async function runDiscovery(): Promise<{
       existingNames.push(profile.name);
       newCommunitiesAdded++;
       console.log(`  Added: ${profile.name} (score: ${solarpunkScore.toFixed(0)}, confidence: ${profile.ai_confidence})`);
+
+      notifySubscribers({
+        name: profile.name,
+        slug: finalSlug,
+        tagline: profile.tagline,
+        locationCountry: profile.location_country,
+        locationRegion: profile.location_region,
+        solarpunkScore,
+        stage: profile.stage,
+      }).catch((err) => console.error("[email] notification error:", err));
     } catch (error) {
       errors.push(`Processing failed for ${candidate.name}: ${error}`);
     }
