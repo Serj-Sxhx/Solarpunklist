@@ -218,29 +218,39 @@ export default function DirectoryPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <section className="relative bg-gradient-to-br from-emerald-50 via-background to-amber-50/30 dark:from-emerald-950/20 dark:via-background dark:to-amber-950/10 border-b border-border/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
+      <section className="relative overflow-hidden border-b border-border/40">
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover motion-reduce:hidden"
+          src="/hero-video.mp4"
+        />
+        <div className="absolute inset-0 bg-black/60" />
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6">
             <div className="max-w-2xl">
               <div className="flex items-center gap-2 mb-3">
-                <Sparkles className="w-4 h-4 text-primary" />
-                <span className="text-xs font-semibold text-primary uppercase tracking-wider">
+                <Sparkles className="w-4 h-4 text-emerald-300" />
+                <span className="text-xs font-semibold text-emerald-300 uppercase tracking-wider">
                   AI-Powered Directory
                 </span>
               </div>
-              <h1 className="text-3xl sm:text-4xl font-extrabold text-foreground leading-tight tracking-tight" data-testid="text-hero-title">
+              <h1 className="text-3xl sm:text-4xl font-extrabold text-white leading-tight tracking-tight" data-testid="text-hero-title">
                 Discover Regenerative
                 <br />
-                <span className="text-primary">Communities</span> Worldwide
+                <span className="text-emerald-400">Communities</span> Worldwide
               </h1>
-              <p className="mt-3 text-base sm:text-lg text-muted-foreground leading-relaxed max-w-xl">
+              <p className="mt-3 text-base sm:text-lg text-gray-200 leading-relaxed max-w-xl">
                 Explore solarpunk intentional communities and regenerative land projects.
                 Auto-discovered by AI, updated monthly, scored for sustainability.
               </p>
               <Button
                 variant="outline"
                 size="sm"
-                className="mt-4 gap-2 bg-[#1dd66b] text-[#ffffff]"
+                className="mt-4 gap-2 bg-[#1dd66b] text-white border-[#1dd66b]"
                 onClick={() => { setShowSubmit(true); setSubmitUrl(""); setSubmitError(""); }}
                 data-testid="button-submit-project"
               >
@@ -250,12 +260,12 @@ export default function DirectoryPage() {
             </div>
 
             <div className="lg:w-80 shrink-0">
-              <div className="bg-white/60 dark:bg-card/60 backdrop-blur-sm border border-border/60 rounded-xl p-5">
+              <div className="bg-black/40 backdrop-blur-sm border border-white/20 rounded-xl p-5">
                 <div className="flex items-center gap-2 mb-2">
-                  <Mail className="w-4 h-4 text-primary" />
-                  <h3 className="text-sm font-bold text-foreground">Stay Updated</h3>
+                  <Mail className="w-4 h-4 text-emerald-300" />
+                  <h3 className="text-sm font-bold text-white">Stay Updated</h3>
                 </div>
-                <p className="text-xs text-muted-foreground mb-3">
+                <p className="text-xs text-gray-300 mb-3">
                   Get notified when new communities are discovered.
                 </p>
                 <form onSubmit={handleSubscribe} className="flex gap-2" data-testid="form-subscribe">
@@ -264,7 +274,7 @@ export default function DirectoryPage() {
                     placeholder="your@email.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="h-9 text-sm bg-background"
+                    className="h-9 text-sm bg-white/10 border-white/20 text-white placeholder:text-gray-400"
                     required
                     data-testid="input-email"
                   />
@@ -283,7 +293,7 @@ export default function DirectoryPage() {
                   </Button>
                 </form>
                 {subscribeMutation.isError && (
-                  <p className="text-xs text-destructive mt-2" data-testid="text-subscribe-error">
+                  <p className="text-xs text-red-300 mt-2" data-testid="text-subscribe-error">
                     Something went wrong. Please try again.
                   </p>
                 )}
@@ -291,7 +301,6 @@ export default function DirectoryPage() {
             </div>
           </div>
         </div>
-        <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent" />
       </section>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">

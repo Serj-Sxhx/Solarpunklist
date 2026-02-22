@@ -9,10 +9,10 @@
   --opaque-button-border-intensity: -8;
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
-  --background: 30 14% 97%;
+  --background: 30 10% 93%;
   --foreground: 30 8% 15%;
-  --border: 30 10% 88%;
-  --card: 30 12% 95%;
+  --border: 30 10% 86%;
+  --card: 0 0% 100%;
   --card-foreground: 30 8% 15%;
   --card-border: 30 10% 90%;
   --sidebar: 30 10% 93%;
