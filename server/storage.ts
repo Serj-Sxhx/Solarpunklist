@@ -23,7 +23,8 @@ export interface IStorage {
   updateCommunity(id: string, data: Partial<InsertCommunity>): Promise<Community | undefined>;
   addTags(communityId: string, tags: string[]): Promise<CommunityTag[]>;
   addLinks(communityId: string, links: { url: string; title?: string; type?: string }[]): Promise<CommunityLink[]>;
-  addImages(communityId: string, images: { imageUrl: string; altText?: string; isHero?: boolean; sortOrder?: number }[]): Promise<CommunityImage[]>;
+  addImages(communityId: string, images: { imageUrl: string; altText?: string; sourceUrl?: string; isHero?: boolean; sortOrder?: number }[]): Promise<CommunityImage[]>;
+  getImagesByCommunityId(communityId: string): Promise<CommunityImage[]>;
   getCommunityCount(): Promise<number>;
   getAllPublishedSlugs(): Promise<string[]>;
 }
@@ -93,10 +94,14 @@ export class DatabaseStorage implements IStorage {
     return db.insert(communityLinks).values(values).returning();
   }
 
-  async addImages(communityId: string, images: { imageUrl: string; altText?: string; isHero?: boolean; sortOrder?: number }[]): Promise<CommunityImage[]> {
+  async addImages(communityId: string, images: { imageUrl: string; altText?: string; sourceUrl?: string; isHero?: boolean; sortOrder?: number }[]): Promise<CommunityImage[]> {
     if (images.length === 0) return [];
     const values = images.map((img) => ({ communityId, ...img }));
     return db.insert(communityImages).values(values).returning();
+  }
+
+  async getImagesByCommunityId(communityId: string): Promise<CommunityImage[]> {
+    return db.select().from(communityImages).where(eq(communityImages.communityId, communityId));
   }
 
   async getCommunityCount(): Promise<number> {

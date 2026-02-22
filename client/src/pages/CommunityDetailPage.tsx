@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams, Link } from "wouter";
+import { useState } from "react";
 import {
   ArrowLeft,
   ExternalLink,
@@ -15,6 +16,9 @@ import {
   Shield,
   ChevronRight,
   Info,
+  Camera,
+  X,
+  ChevronLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -173,6 +177,10 @@ export default function CommunityDetailPage() {
                   ))}
                 </div>
               </section>
+            )}
+
+            {community.images && community.images.length > 0 && (
+              <PhotoGallery images={community.images} communityName={community.name} />
             )}
 
             {community.landDescription && (
@@ -344,6 +352,126 @@ export default function CommunityDetailPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+function safeHostname(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function PhotoGallery({
+  images,
+  communityName,
+}: {
+  images: CommunityWithRelations["images"];
+  communityName: string;
+}) {
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const sortedImages = [...images].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+
+  return (
+    <>
+      <section data-testid="section-gallery">
+        <div className="flex items-center gap-2 mb-4">
+          <Camera className="w-5 h-5 text-muted-foreground" />
+          <h2 className="text-xl font-bold text-foreground">Photos</h2>
+          <span className="text-sm text-muted-foreground">({sortedImages.length})</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {sortedImages.map((img, i) => (
+            <button
+              key={img.id}
+              onClick={() => setLightboxIndex(i)}
+              className="relative aspect-[4/3] rounded-lg overflow-hidden group cursor-pointer border border-border hover:border-primary/40 transition-colors"
+              data-testid={`gallery-image-${i}`}
+            >
+              <img
+                src={img.imageUrl}
+                alt={img.altText || `${communityName} photo ${i + 1}`}
+                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                loading="lazy"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
+              />
+              {safeHostname(img.sourceUrl) && (
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span className="text-[10px] text-white/70 truncate block">
+                    Source: {safeHostname(img.sourceUrl)}
+                  </span>
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {lightboxIndex !== null && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+          onClick={() => setLightboxIndex(null)}
+          data-testid="lightbox"
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setLightboxIndex(null); }}
+            className="absolute top-4 right-4 text-white/70 hover:text-white p-2 z-10"
+            data-testid="lightbox-close"
+          >
+            <X className="w-6 h-6" />
+          </button>
+
+          {lightboxIndex > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setLightboxIndex(lightboxIndex - 1); }}
+              className="absolute left-4 text-white/70 hover:text-white p-2 z-10"
+              data-testid="lightbox-prev"
+            >
+              <ChevronLeft className="w-8 h-8" />
+            </button>
+          )}
+
+          {lightboxIndex < sortedImages.length - 1 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setLightboxIndex(lightboxIndex + 1); }}
+              className="absolute right-14 text-white/70 hover:text-white p-2 z-10"
+              data-testid="lightbox-next"
+            >
+              <ChevronRight className="w-8 h-8" />
+            </button>
+          )}
+
+          <img
+            src={sortedImages[lightboxIndex].imageUrl}
+            alt={sortedImages[lightboxIndex].altText || `${communityName} photo`}
+            className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          <div className="absolute bottom-4 text-center text-white/60 text-sm">
+            {lightboxIndex + 1} / {sortedImages.length}
+            {safeHostname(sortedImages[lightboxIndex].sourceUrl) && (
+              <span className="ml-3">
+                Source:{" "}
+                <a
+                  href={sortedImages[lightboxIndex].sourceUrl!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-white/80 hover:text-white underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {safeHostname(sortedImages[lightboxIndex].sourceUrl)}
+                </a>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

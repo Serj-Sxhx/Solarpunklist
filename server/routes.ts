@@ -60,6 +60,17 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/backfill-images", async (_req, res) => {
+    try {
+      const { backfillAllImages } = await import("./image-fetcher");
+      const result = await backfillAllImages();
+      res.json(result);
+    } catch (error) {
+      console.error("Image backfill error:", error);
+      res.status(500).json({ error: "Image backfill failed" });
+    }
+  });
+
   app.post("/api/admin/seed", async (_req, res) => {
     try {
       const { seedCommunities } = await import("./seed");

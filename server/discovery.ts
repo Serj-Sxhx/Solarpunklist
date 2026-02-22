@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { storage } from "./storage";
 import { db } from "./db";
 import { discoveryRuns } from "@shared/schema";
+import { fetchAndStoreImages } from "./image-fetcher";
 
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
@@ -326,6 +327,12 @@ export async function runDiscovery(): Promise<{
         await storage.addLinks(community.id, [
           { url: profile.website_url, title: "Official Website", type: "website" },
         ]);
+      }
+
+      try {
+        await fetchAndStoreImages(community.id, profile.name, profile.website_url);
+      } catch (imgErr) {
+        console.error(`  Image fetch failed for ${profile.name}:`, imgErr);
       }
 
       existingSlugs.push(finalSlug);
