@@ -47,6 +47,7 @@ export const communities = pgTable("communities", {
   refreshCount: integer("refresh_count").default(0),
   isPublished: boolean("is_published").default(false),
   isFormingDisclaimer: boolean("is_forming_disclaimer").default(false),
+  source: text("source").default("discovery"),
   createdAt: timestamp("created_at").default(sql`now()`),
   updatedAt: timestamp("updated_at").default(sql`now()`),
 });

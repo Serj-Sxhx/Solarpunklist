@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { Users, TrendingUp } from "lucide-react";
+import { Users, TrendingUp, Upload } from "lucide-react";
 
 export function Footer() {
-  const { data: stats } = useQuery<{ totalVisits: number; monthlyAverage: number }>({
+  const { data: stats } = useQuery<{ totalVisits: number; monthlyAverage: number; userSubmissions: number }>({
     queryKey: ["/api/visit-stats"],
     refetchInterval: 60000,
   });
@@ -23,6 +23,10 @@ export function Footer() {
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <TrendingUp className="w-3.5 h-3.5" />
                 <span>{stats.monthlyAverage.toLocaleString()}/mo avg</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="text-user-submissions">
+                <Upload className="w-3.5 h-3.5" />
+                <span>{stats.userSubmissions.toLocaleString()} user submitted</span>
               </div>
             </div>
           )}

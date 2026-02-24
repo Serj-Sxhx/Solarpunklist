@@ -344,6 +344,7 @@ Return ONLY valid JSON.`,
     sourcesCount: 1,
     isPublished: true,
     isFormingDisclaimer: profile.is_forming_disclaimer || false,
+    source: "submission",
     lastResearchedAt: new Date(),
     lastRefreshedAt: new Date(),
   });

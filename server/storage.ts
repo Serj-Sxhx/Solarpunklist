@@ -33,7 +33,7 @@ export interface IStorage {
   addEmailSubscriber(email: string): Promise<EmailSubscriber>;
   getAllSubscriberEmails(): Promise<string[]>;
   trackVisit(path: string): Promise<void>;
-  getVisitStats(): Promise<{ totalVisits: number; monthlyAverage: number }>;
+  getVisitStats(): Promise<{ totalVisits: number; monthlyAverage: number; userSubmissions: number }>;
 }
 
 async function enrichCommunity(community: Community): Promise<CommunityWithRelations> {
@@ -152,18 +152,24 @@ export class DatabaseStorage implements IStorage {
     await db.insert(pageVisits).values({ path });
   }
 
-  async getVisitStats(): Promise<{ totalVisits: number; monthlyAverage: number }> {
+  async getVisitStats(): Promise<{ totalVisits: number; monthlyAverage: number; userSubmissions: number }> {
     const [totalResult] = await db
       .select({ count: sql<number>`count(*)` })
       .from(pageVisits);
     const totalVisits = Number(totalResult?.count ?? 0);
+
+    const [submissionResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(communities)
+      .where(eq(communities.source, "submission"));
+    const userSubmissions = Number(submissionResult?.count ?? 0);
 
     const [firstVisit] = await db
       .select({ earliest: sql<string>`min(visited_at)` })
       .from(pageVisits);
 
     if (!firstVisit?.earliest || totalVisits === 0) {
-      return { totalVisits: 0, monthlyAverage: 0 };
+      return { totalVisits: 0, monthlyAverage: 0, userSubmissions };
     }
 
     const earliest = new Date(firstVisit.earliest);
@@ -174,7 +180,7 @@ export class DatabaseStorage implements IStorage {
     );
     const monthlyAverage = Math.round(totalVisits / monthsDiff);
 
-    return { totalVisits, monthlyAverage };
+    return { totalVisits, monthlyAverage, userSubmissions };
   }
 }
 
