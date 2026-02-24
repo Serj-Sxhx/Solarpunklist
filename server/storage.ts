@@ -8,6 +8,7 @@ import {
   discoveryRuns,
   refreshRuns,
   emailSubscribers,
+  pageVisits,
   type Community,
   type InsertCommunity,
   type CommunityWithRelations,
@@ -31,6 +32,8 @@ export interface IStorage {
   getAllPublishedSlugs(): Promise<string[]>;
   addEmailSubscriber(email: string): Promise<EmailSubscriber>;
   getAllSubscriberEmails(): Promise<string[]>;
+  trackVisit(path: string): Promise<void>;
+  getVisitStats(): Promise<{ totalVisits: number; monthlyAverage: number }>;
 }
 
 async function enrichCommunity(community: Community): Promise<CommunityWithRelations> {
@@ -143,6 +146,35 @@ export class DatabaseStorage implements IStorage {
       .select({ email: emailSubscribers.email })
       .from(emailSubscribers);
     return results.map((r) => r.email);
+  }
+
+  async trackVisit(path: string): Promise<void> {
+    await db.insert(pageVisits).values({ path });
+  }
+
+  async getVisitStats(): Promise<{ totalVisits: number; monthlyAverage: number }> {
+    const [totalResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(pageVisits);
+    const totalVisits = Number(totalResult?.count ?? 0);
+
+    const [firstVisit] = await db
+      .select({ earliest: sql<string>`min(visited_at)` })
+      .from(pageVisits);
+
+    if (!firstVisit?.earliest || totalVisits === 0) {
+      return { totalVisits: 0, monthlyAverage: 0 };
+    }
+
+    const earliest = new Date(firstVisit.earliest);
+    const now = new Date();
+    const monthsDiff = Math.max(
+      1,
+      (now.getFullYear() - earliest.getFullYear()) * 12 + (now.getMonth() - earliest.getMonth()) + 1
+    );
+    const monthlyAverage = Math.round(totalVisits / monthsDiff);
+
+    return { totalVisits, monthlyAverage };
   }
 }
 

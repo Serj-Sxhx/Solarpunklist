@@ -31,6 +31,8 @@ Preferred communication style: Simple, everyday language.
   - `POST /api/admin/discover` — trigger AI discovery pipeline
   - `POST /api/submit-community` — public endpoint: accepts `{ url }`, runs Exa + Claude pipeline for a single URL, adds to directory (SSRF-protected)
   - `POST /api/subscribe` — email subscription (stores to `email_subscribers` table)
+  - `POST /api/track-visit` — log a page visit (accepts `{ path }`)
+  - `GET /api/visit-stats` — returns `{ totalVisits, monthlyAverage }` for footer display
   - Chat/conversation endpoints under `/api/conversations`
 - **Build:** Custom build script (`script/build.ts`) using Vite for client and esbuild for server, outputting to `dist/`
 
@@ -47,6 +49,7 @@ Preferred communication style: Simple, everyday language.
   - `email_subscribers` — email newsletter subscriptions
   - `discovery_runs` — tracking discovery pipeline executions
   - `refresh_runs` — tracking refresh pipeline executions
+  - `page_visits` — visitor tracking (path + timestamp) for analytics display in footer
   - `conversations` / `messages` — chat integration tables
 - **Session store:** connect-pg-simple (PostgreSQL-backed sessions)
 - **Storage pattern:** `IStorage` interface implemented by `DatabaseStorage` class, accessed via singleton `storage` export

@@ -145,6 +145,14 @@ export type CommunityImage = typeof communityImages.$inferSelect;
 export type DiscoveryRun = typeof discoveryRuns.$inferSelect;
 export type RefreshRun = typeof refreshRuns.$inferSelect;
 
+export const pageVisits = pgTable("page_visits", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  path: text("path").notNull(),
+  visitedAt: timestamp("visited_at").default(sql`now()`),
+});
+
+export type PageVisit = typeof pageVisits.$inferSelect;
+
 export type CommunityWithRelations = Community & {
   tags: CommunityTag[];
   links: CommunityLink[];

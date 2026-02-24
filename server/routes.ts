@@ -123,6 +123,30 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/track-visit", async (req, res) => {
+    try {
+      const { path } = req.body;
+      if (!path || typeof path !== "string" || path.length > 500) {
+        return res.status(400).json({ error: "Valid path is required" });
+      }
+      await storage.trackVisit(path.slice(0, 500));
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Track visit error:", error);
+      res.status(500).json({ error: "Failed to track visit" });
+    }
+  });
+
+  app.get("/api/visit-stats", async (_req, res) => {
+    try {
+      const stats = await storage.getVisitStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Visit stats error:", error);
+      res.status(500).json({ error: "Failed to fetch visit stats" });
+    }
+  });
+
   app.post("/api/admin/seed", async (_req, res) => {
     try {
       const { seedCommunities } = await import("./seed");
