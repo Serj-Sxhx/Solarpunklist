@@ -313,10 +313,51 @@ Return ONLY valid JSON, no explanation.`,
       }
 
       const { researchFromUrl } = await import("./discovery");
+      const exaApiKey = process.env.EXA_API_KEY;
       const results: { name: string; url: string; status: string; slug?: string; error?: string }[] = [];
 
       for (const entry of entries) {
-        const entryUrl = entry.url || `https://www.google.com/search?q=${encodeURIComponent(entry.name + " intentional community ecovillage")}`;
+        let entryUrl = entry.url;
+
+        if (!entryUrl || entryUrl.includes("google.com/search")) {
+          if (exaApiKey) {
+            try {
+              const searchResp = await fetch("https://api.exa.ai/search", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-api-key": exaApiKey,
+                },
+                body: JSON.stringify({
+                  query: `${entry.name} intentional community ecovillage official website`,
+                  numResults: 1,
+                  type: "neural",
+                }),
+              });
+              if (searchResp.ok) {
+                const searchData = await searchResp.json();
+                const topResult = searchData.results?.[0];
+                if (topResult?.url) {
+                  entryUrl = topResult.url;
+                  console.log(`[bulk-research] Found URL for "${entry.name}": ${entryUrl}`);
+                }
+              }
+            } catch (searchErr) {
+              console.error(`[bulk-research] Exa search failed for "${entry.name}":`, searchErr);
+            }
+          }
+        }
+
+        if (!entryUrl) {
+          results.push({
+            name: entry.name,
+            url: "",
+            status: "error",
+            error: "Could not find a website for this community",
+          });
+          continue;
+        }
+
         try {
           const result = await researchFromUrl(entryUrl);
           results.push({
