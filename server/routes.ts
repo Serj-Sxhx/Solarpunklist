@@ -383,6 +383,107 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
+  app.get("/api/admin/export-all", async (_req, res) => {
+    try {
+      const allCommunities = await storage.getCommunities();
+      res.json({ communities: allCommunities });
+    } catch (error: any) {
+      console.error("Export error:", error);
+      res.status(500).json({ error: "Export failed" });
+    }
+  });
+
+  app.post("/api/admin/import-communities", async (req, res) => {
+    try {
+      const { communities: incoming } = req.body;
+      if (!incoming || !Array.isArray(incoming)) {
+        return res.status(400).json({ error: "communities array is required" });
+      }
+
+      const existingSlugs = new Set(await storage.getAllPublishedSlugs());
+      let imported = 0;
+      let skipped = 0;
+      const errors: string[] = [];
+
+      for (const c of incoming) {
+        if (existingSlugs.has(c.slug)) {
+          skipped++;
+          continue;
+        }
+
+        try {
+          const community = await storage.createCommunity({
+            name: c.name,
+            slug: c.slug,
+            tagline: c.tagline,
+            overview: c.overview,
+            locationCountry: c.locationCountry,
+            locationRegion: c.locationRegion,
+            locationLat: c.locationLat,
+            locationLng: c.locationLng,
+            stage: c.stage,
+            population: c.population,
+            foundedYear: c.foundedYear,
+            websiteUrl: c.websiteUrl,
+            heroImageUrl: c.heroImageUrl,
+            solarpunkScore: c.solarpunkScore,
+            scoreEnergy: c.scoreEnergy,
+            scoreLand: c.scoreLand,
+            scoreTech: c.scoreTech,
+            scoreGovernance: c.scoreGovernance,
+            scoreCommunity: c.scoreCommunity,
+            scoreCircularity: c.scoreCircularity,
+            techStack: c.techStack,
+            communityLife: c.communityLife,
+            howToJoin: c.howToJoin,
+            landDescription: c.landDescription,
+            aiConfidence: c.aiConfidence,
+            sourcesCount: c.sourcesCount,
+            isPublished: c.isPublished ?? true,
+            isFormingDisclaimer: c.isFormingDisclaimer ?? false,
+            source: c.source ?? "discovery",
+            lastResearchedAt: c.lastResearchedAt ? new Date(c.lastResearchedAt) : new Date(),
+            lastRefreshedAt: c.lastRefreshedAt ? new Date(c.lastRefreshedAt) : new Date(),
+          });
+
+          if (c.tags?.length) {
+            const tagNames = c.tags.map((t: any) => t.tag || t);
+            await storage.addTags(community.id, tagNames);
+          }
+
+          if (c.links?.length) {
+            await storage.addLinks(community.id, c.links.map((l: any) => ({
+              url: l.url,
+              title: l.title,
+              type: l.type,
+            })));
+          }
+
+          if (c.images?.length) {
+            await storage.addImages(community.id, c.images.map((img: any) => ({
+              imageUrl: img.imageUrl,
+              altText: img.altText,
+              sourceUrl: img.sourceUrl,
+              isHero: img.isHero,
+              sortOrder: img.sortOrder,
+            })));
+          }
+
+          existingSlugs.add(c.slug);
+          imported++;
+          console.log(`[import] Added: ${c.name} (${c.slug})`);
+        } catch (err: any) {
+          errors.push(`${c.name}: ${err.message}`);
+        }
+      }
+
+      res.json({ imported, skipped, errors });
+    } catch (error: any) {
+      console.error("Import error:", error);
+      res.status(500).json({ error: error?.message || "Import failed" });
+    }
+  });
+
   app.post("/api/admin/seed", async (_req, res) => {
     try {
       const { seedCommunities } = await import("./seed");
