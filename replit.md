@@ -18,7 +18,7 @@ Preferred communication style: Simple, everyday language.
 - **State/Data Fetching:** TanStack React Query with a custom `apiRequest` helper and `getQueryFn` factory
 - **UI Components:** shadcn/ui (new-york style) with Radix UI primitives, Tailwind CSS, class-variance-authority
 - **Fonts:** Nunito (body/headings) and Lora (serif accent), loaded via Google Fonts
-- **Pages:** DirectoryPage (filterable grid), CommunityDetailPage (full profile), AboutPage, NotFound
+- **Pages:** DirectoryPage (filterable grid), CommunityDetailPage (full profile), AboutPage, DirectoryManagerPage (admin bulk-import from external directories), NotFound
 - **Path aliases:** `@/` → `client/src/`, `@shared/` → `shared/`, `@assets/` → `attached_assets/`
 
 ### Backend
@@ -32,7 +32,9 @@ Preferred communication style: Simple, everyday language.
   - `POST /api/submit-community` — public endpoint: accepts `{ url }`, runs Exa + Claude pipeline for a single URL, adds to directory (SSRF-protected)
   - `POST /api/subscribe` — email subscription (stores to `email_subscribers` table)
   - `POST /api/track-visit` — log a page visit (accepts `{ path }`)
-  - `GET /api/visit-stats` — returns `{ totalVisits, monthlyAverage }` for footer display
+  - `GET /api/visit-stats` — returns `{ totalVisits, monthlyAverage, userSubmissions }` for footer display
+  - `POST /api/admin/scrape-directory` — accepts `{ url }`, uses Exa + Claude to extract community listings from an external directory page, returns annotated entries with duplicate detection
+  - `POST /api/admin/bulk-research` — accepts `{ entries: [{ name, url }] }`, runs `researchFromUrl` sequentially on each entry, returns per-entry success/error results
   - Chat/conversation endpoints under `/api/conversations`
 - **Build:** Custom build script (`script/build.ts`) using Vite for client and esbuild for server, outputting to `dist/`
 
