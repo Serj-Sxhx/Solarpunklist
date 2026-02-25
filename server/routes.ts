@@ -383,6 +383,17 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
+  app.post("/api/admin/audit-hero-images", async (_req, res) => {
+    try {
+      const { auditAndFixHeroImages } = await import("./image-fetcher");
+      const result = await auditAndFixHeroImages();
+      res.json(result);
+    } catch (error: any) {
+      console.error("Hero audit error:", error);
+      res.status(500).json({ error: error?.message || "Hero image audit failed" });
+    }
+  });
+
   app.get("/api/admin/export-all", async (_req, res) => {
     try {
       const allCommunities = await storage.getCommunities();

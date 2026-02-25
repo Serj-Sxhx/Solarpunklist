@@ -227,6 +227,199 @@ export async function fetchAndStoreImages(
   return imagesToStore.length;
 }
 
+export async function validateHeroImage(url: string): Promise<{ valid: boolean; reason?: string }> {
+  if (!url || url.length < 10) return { valid: false, reason: "no_url" };
+
+  if (url.startsWith("/images/communities/")) return { valid: true };
+
+  if (url.startsWith("http://")) {
+    const httpsUrl = url.replace("http://", "https://");
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const resp = await fetch(httpsUrl, {
+        method: "HEAD",
+        signal: controller.signal,
+        headers: { "User-Agent": "SolarpunkList/1.0" },
+        redirect: "follow",
+      });
+      clearTimeout(timeout);
+      if (!resp.ok) return { valid: false, reason: "http_only_broken_on_https" };
+    } catch {
+      return { valid: false, reason: "http_only_no_https" };
+    }
+  }
+
+  const lower = url.toLowerCase();
+  if (lower.includes("logo") || lower.includes("favicon") || lower.includes("icon")) {
+    return { valid: false, reason: "likely_logo" };
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const response = await fetch(url, {
+      method: "GET",
+      signal: controller.signal,
+      headers: { "User-Agent": "SolarpunkList/1.0", "Range": "bytes=0-65535" },
+      redirect: "follow",
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) return { valid: false, reason: "broken" };
+
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.startsWith("image/")) return { valid: false, reason: "not_image" };
+    if (contentType.includes("svg")) return { valid: false, reason: "svg" };
+    if (contentType.includes("gif")) return { valid: false, reason: "gif" };
+
+    const contentLength = response.headers.get("content-length");
+    const size = contentLength ? parseInt(contentLength) : 0;
+
+    if (size > 0 && size < 10000) return { valid: false, reason: "too_small" };
+
+    if (contentType.includes("png")) {
+      const buffer = await response.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+
+      if (bytes.length >= 26) {
+        const width = (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19];
+        const height = (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23];
+        const colorType = bytes[25];
+
+        if (width < 300 || height < 200) return { valid: false, reason: "too_small_dimensions" };
+
+        const isTransparent = colorType === 4 || colorType === 6;
+        if (isTransparent && size < 50000) {
+          return { valid: false, reason: "transparent_png_likely_logo" };
+        }
+        if (isTransparent && width > 0 && height > 0) {
+          const ratio = Math.max(width, height) / Math.min(width, height);
+          if (ratio < 1.3 && size < 100000) {
+            return { valid: false, reason: "transparent_png_likely_logo" };
+          }
+        }
+      }
+    }
+
+    return { valid: true };
+  } catch {
+    return { valid: false, reason: "broken" };
+  }
+}
+
+export async function repairHeroImage(
+  communityId: string,
+  communityName: string,
+  websiteUrl: string | null,
+  slug: string,
+  currentUrl?: string
+): Promise<{ action: string; newUrl?: string }> {
+  console.log(`  [hero-repair] Attempting to find replacement for ${communityName}...`);
+
+  if (currentUrl?.startsWith("http://")) {
+    const httpsUrl = currentUrl.replace("http://", "https://");
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const resp = await fetch(httpsUrl, {
+        method: "HEAD",
+        signal: controller.signal,
+        headers: { "User-Agent": "SolarpunkList/1.0" },
+        redirect: "follow",
+      });
+      clearTimeout(timeout);
+      if (resp.ok) {
+        await storage.updateCommunity(communityId, { heroImageUrl: httpsUrl });
+        console.log(`  [hero-repair] Upgraded to HTTPS: ${httpsUrl}`);
+        return { action: "upgraded_to_https", newUrl: httpsUrl };
+      }
+    } catch {}
+  }
+
+  if (websiteUrl) {
+    const domain = extractDomain(websiteUrl);
+    if (domain) {
+      const siteImages = await searchExaForImages(`${communityName} community photos landscape`, [domain]);
+      for (const img of siteImages) {
+        if (!isValidImageUrl(img.imageUrl)) continue;
+        const validation = await validateHeroImage(img.imageUrl);
+        if (validation.valid) {
+          await storage.updateCommunity(communityId, { heroImageUrl: img.imageUrl });
+          console.log(`  [hero-repair] Found replacement from site: ${img.imageUrl}`);
+          return { action: "replaced_from_site", newUrl: img.imageUrl };
+        }
+      }
+    }
+  }
+
+  const webImages = await searchExaForImages(`"${communityName}" ecovillage community photos`);
+  for (const img of webImages) {
+    if (!isValidImageUrl(img.imageUrl)) continue;
+    const validation = await validateHeroImage(img.imageUrl);
+    if (validation.valid) {
+      await storage.updateCommunity(communityId, { heroImageUrl: img.imageUrl });
+      console.log(`  [hero-repair] Found replacement from web: ${img.imageUrl}`);
+      return { action: "replaced_from_web", newUrl: img.imageUrl };
+    }
+  }
+
+  const fallbackPath = `/images/communities/${slug}.png`;
+  await storage.updateCommunity(communityId, { heroImageUrl: fallbackPath });
+  console.log(`  [hero-repair] Set fallback path for ${communityName}: ${fallbackPath}`);
+  return { action: "set_fallback", newUrl: fallbackPath };
+}
+
+export async function auditAndFixHeroImages(): Promise<{
+  audited: number;
+  fixed: number;
+  alreadyGood: number;
+  details: { name: string; slug: string; issue: string; action: string; newUrl?: string }[];
+}> {
+  const allCommunities = await storage.getCommunities();
+  const details: { name: string; slug: string; issue: string; action: string; newUrl?: string }[] = [];
+  let fixed = 0;
+  let alreadyGood = 0;
+
+  console.log(`[hero-audit] Auditing ${allCommunities.length} communities...`);
+
+  for (const community of allCommunities) {
+    const heroUrl = community.heroImageUrl;
+    const validation = await validateHeroImage(heroUrl || "");
+
+    if (validation.valid) {
+      alreadyGood++;
+      continue;
+    }
+
+    const issue = validation.reason || "unknown";
+    console.log(`  [hero-audit] ${community.name}: ${issue} (${heroUrl?.substring(0, 80)})`);
+
+    try {
+      const result = await repairHeroImage(community.id, community.name, community.websiteUrl, community.slug, heroUrl || undefined);
+      details.push({
+        name: community.name,
+        slug: community.slug,
+        issue,
+        action: result.action,
+        newUrl: result.newUrl,
+      });
+      fixed++;
+    } catch (err: any) {
+      details.push({
+        name: community.name,
+        slug: community.slug,
+        issue,
+        action: "failed",
+      });
+    }
+  }
+
+  console.log(`[hero-audit] Complete: ${alreadyGood} good, ${fixed} fixed out of ${allCommunities.length}`);
+
+  return { audited: allCommunities.length, fixed, alreadyGood, details };
+}
+
 export async function backfillAllImages(): Promise<{
   communitiesProcessed: number;
   totalImagesAdded: number;
