@@ -220,7 +220,10 @@ export async function registerRoutes(
       }
 
       const Anthropic = (await import("@anthropic-ai/sdk")).default;
-      const anthropic = new Anthropic();
+      const anthropic = new Anthropic({
+        apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
+        baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
+      });
 
       const llmResp = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
