@@ -30,6 +30,7 @@ import {
   Bot,
   Wifi,
   ExternalLink,
+  Coffee,
   Plus,
   Globe,
 } from "lucide-react";
@@ -384,15 +385,15 @@ export default function DirectoryPage() {
                 </div>
 
                 <a
-                  href="https://cal.com/serj-hunt-5otgyc/60-min-meeting"
+                  href="https://buymeacoffee.com/sergiohunt"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block"
-                  data-testid="link-contact-us"
+                  data-testid="link-buy-coffee"
                 >
                   <Button className="w-full gap-2" size="sm">
-                    <ExternalLink className="w-4 h-4" />
-                    Contact Us
+                    <Coffee className="w-4 h-4" />
+                    Buy me a coffee
                   </Button>
                 </a>
               </Card>
