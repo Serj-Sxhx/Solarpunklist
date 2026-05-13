@@ -78,6 +78,22 @@ const SEED_ORGS: SeedOrg[] = [
         website: "https://www.opensourceecology.org",
         role: "Advisor",
       },
+      {
+        name: "Brianna Kufa",
+        slug: "brianna-kufa",
+        title: "Operations Lead",
+        bio: "Manages operations and community outreach at Open Source Ecology, supporting the Global Village Construction Set mission.",
+        website: "https://www.opensourceecology.org",
+        role: "Core Team",
+      },
+      {
+        name: "Erin Antlfinger",
+        slug: "erin-antlfinger",
+        title: "Community & Education",
+        bio: "Leads education and community programs at Open Source Ecology, bringing open hardware literacy to makers and builders worldwide.",
+        website: "https://www.opensourceecology.org",
+        role: "Core Team",
+      },
     ],
   },
 ];

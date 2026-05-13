@@ -56,7 +56,11 @@ export async function fetchPersonAvatar(
     `"${personName}" headshot portrait photo`,
     `${personName} profile photo`,
   ];
-  if (website) queries.unshift(`${personName} site:${new URL(website).hostname}`);
+  if (website) {
+    let hostname: string | null = null;
+    try { hostname = new URL(website).hostname; } catch { /* invalid URL — skip site: query */ }
+    if (hostname) queries.unshift(`${personName} site:${hostname}`);
+  }
 
   for (const query of queries) {
     try {

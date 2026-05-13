@@ -81,7 +81,7 @@ export default function NetworkPage() {
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const containerRef = useRef<HTMLDivElement>(null);
   // ForceGraphMethods generics: NodeObject<NodeData>, NodeObject<{ role?: string | null }>
-  const graphRef = useRef<ForceGraphMethods<NodeObject<NodeData>>>(undefined as unknown as ForceGraphMethods<NodeObject<NodeData>>);
+  const graphRef = useRef<ForceGraphMethods | undefined>(undefined);
 
   // Preload avatar images
   useEffect(() => {
