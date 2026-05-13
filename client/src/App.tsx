@@ -10,6 +10,7 @@ import DirectoryPage from "@/pages/DirectoryPage";
 import CommunityDetailPage from "@/pages/CommunityDetailPage";
 import AboutPage from "@/pages/AboutPage";
 import DirectoryManagerPage from "@/pages/DirectoryManagerPage";
+import NetworkPage from "@/pages/NetworkPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -19,6 +20,7 @@ function Router() {
       <Route path="/" component={DirectoryPage} />
       <Route path="/community/:slug" component={CommunityDetailPage} />
       <Route path="/about" component={AboutPage} />
+      <Route path="/network" component={NetworkPage} />
       <Route path="/directory-manager" component={DirectoryManagerPage} />
       <Route component={NotFound} />
     </Switch>

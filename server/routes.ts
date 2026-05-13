@@ -506,5 +506,26 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
+  app.get("/api/graph", async (_req, res) => {
+    try {
+      const graphData = await storage.getGraphData();
+      res.json(graphData);
+    } catch (error) {
+      console.error("Graph data error:", error);
+      res.status(500).json({ error: "Failed to fetch graph data" });
+    }
+  });
+
+  app.post("/api/admin/enrich-graph", async (_req, res) => {
+    try {
+      const { enrichGraphFromAllCommunities } = await import("./graph-enrichment");
+      const result = await enrichGraphFromAllCommunities();
+      res.json(result);
+    } catch (error: any) {
+      console.error("Graph enrichment error:", error);
+      res.status(500).json({ error: error?.message || "Graph enrichment failed" });
+    }
+  });
+
   return httpServer;
 }

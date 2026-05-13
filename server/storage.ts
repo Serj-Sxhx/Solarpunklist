@@ -9,6 +9,9 @@ import {
   refreshRuns,
   emailSubscribers,
   pageVisits,
+  organizations,
+  people,
+  personOrgEdges,
   type Community,
   type InsertCommunity,
   type CommunityWithRelations,
@@ -16,6 +19,12 @@ import {
   type CommunityLink,
   type CommunityImage,
   type EmailSubscriber,
+  type Organization,
+  type InsertOrganization,
+  type Person,
+  type InsertPerson,
+  type PersonOrgEdge,
+  type InsertPersonOrgEdge,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -34,6 +43,17 @@ export interface IStorage {
   getAllSubscriberEmails(): Promise<string[]>;
   trackVisit(path: string): Promise<void>;
   getVisitStats(): Promise<{ totalVisits: number; monthlyAverage: number; userSubmissions: number }>;
+
+  // Social graph
+  getPeopleCount(): Promise<number>;
+  upsertOrganization(data: Omit<InsertOrganization, "logoUrl"> & { logoUrl?: string | null; description?: string | null }): Promise<Organization>;
+  upsertPerson(data: InsertPerson): Promise<Person>;
+  upsertPersonOrgEdge(data: InsertPersonOrgEdge): Promise<PersonOrgEdge>;
+  getGraphData(): Promise<{
+    organizations: Organization[];
+    people: Person[];
+    edges: PersonOrgEdge[];
+  }>;
 }
 
 async function enrichCommunity(community: Community): Promise<CommunityWithRelations> {
@@ -181,6 +201,91 @@ export class DatabaseStorage implements IStorage {
     const monthlyAverage = Math.round(totalVisits / monthsDiff);
 
     return { totalVisits, monthlyAverage, userSubmissions };
+  }
+
+  // ── Social Graph ────────────────────────────────────────────────────────────
+
+  async getPeopleCount(): Promise<number> {
+    const [result] = await db.select({ count: sql<number>`count(*)` }).from(people);
+    return Number(result?.count ?? 0);
+  }
+
+  async upsertOrganization(
+    data: Omit<InsertOrganization, "logoUrl"> & { logoUrl?: string | null; description?: string | null }
+  ): Promise<Organization> {
+    const [org] = await db
+      .insert(organizations)
+      .values({
+        name: data.name,
+        slug: data.slug,
+        type: data.type ?? "community",
+        website: data.website,
+        description: data.description,
+        logoUrl: data.logoUrl,
+      })
+      .onConflictDoUpdate({
+        target: organizations.slug,
+        set: {
+          name: data.name,
+          website: data.website,
+          description: data.description,
+          logoUrl: data.logoUrl,
+        },
+      })
+      .returning();
+    return org;
+  }
+
+  async upsertPerson(data: InsertPerson): Promise<Person> {
+    const [person] = await db
+      .insert(people)
+      .values(data)
+      .onConflictDoUpdate({
+        target: people.slug,
+        set: {
+          name: data.name,
+          title: data.title,
+          bio: data.bio,
+          website: data.website,
+          linkedIn: data.linkedIn,
+          // Only update avatarUrl if we have a new one
+          ...(data.avatarUrl ? { avatarUrl: data.avatarUrl } : {}),
+        },
+      })
+      .returning();
+    return person;
+  }
+
+  async upsertPersonOrgEdge(data: InsertPersonOrgEdge): Promise<PersonOrgEdge> {
+    // Check if edge already exists
+    const existing = await db
+      .select()
+      .from(personOrgEdges)
+      .where(
+        and(
+          eq(personOrgEdges.personId, data.personId),
+          eq(personOrgEdges.orgId, data.orgId)
+        )
+      )
+      .limit(1);
+
+    if (existing.length > 0) return existing[0];
+
+    const [edge] = await db.insert(personOrgEdges).values(data).returning();
+    return edge;
+  }
+
+  async getGraphData(): Promise<{
+    organizations: Organization[];
+    people: Person[];
+    edges: PersonOrgEdge[];
+  }> {
+    const [orgs, persons, edges] = await Promise.all([
+      db.select().from(organizations),
+      db.select().from(people),
+      db.select().from(personOrgEdges),
+    ]);
+    return { organizations: orgs, people: persons, edges };
   }
 }
 

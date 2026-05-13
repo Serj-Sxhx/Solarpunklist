@@ -365,6 +365,12 @@ Return ONLY valid JSON.`,
     console.error(`  Image fetch failed for ${profile.name}:`, imgErr);
   }
 
+  // Enrich social graph with founders/core team (fire-and-forget)
+  import("./graph-enrichment").then(({ enrichGraphFromCommunity }) => {
+    const context = [profile.overview, profile.community_life, `Website: ${profile.website_url || url}`].filter(Boolean).join("\n\n");
+    return enrichGraphFromCommunity(community.id, profile.name, finalSlug, profile.website_url || url, context);
+  }).catch((err) => console.error(`[graph] enrichment error for ${profile.name}:`, err));
+
   console.log(`[submit] Added: ${profile.name} (score: ${solarpunkScore.toFixed(0)}, slug: ${finalSlug})`);
 
   notifySubscribers({
@@ -507,6 +513,12 @@ export async function runDiscovery(): Promise<{
       } catch (imgErr) {
         console.error(`  Image fetch failed for ${profile.name}:`, imgErr);
       }
+
+      // Enrich social graph with founders/core team (fire-and-forget)
+      import("./graph-enrichment").then(({ enrichGraphFromCommunity }) => {
+        const context = [profile.overview, profile.community_life, `Website: ${profile.website_url}`].filter(Boolean).join("\n\n");
+        return enrichGraphFromCommunity(community.id, profile.name, finalSlug, profile.website_url, context);
+      }).catch((err) => console.error(`[graph] enrichment error for ${profile.name}:`, err));
 
       existingSlugs.push(finalSlug);
       existingNames.push(profile.name);

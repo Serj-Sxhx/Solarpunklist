@@ -159,3 +159,62 @@ export type CommunityWithRelations = Community & {
   links: CommunityLink[];
   images: CommunityImage[];
 };
+
+// ── Social Graph ──────────────────────────────────────────────────────────────
+
+export const organizations = pgTable("organizations", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  slug: text("slug").unique().notNull(),
+  type: text("type").notNull().default("community"), // "community" | "external"
+  website: text("website"),
+  description: text("description"),
+  logoUrl: text("logo_url"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const people = pgTable("people", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  slug: text("slug").unique().notNull(),
+  title: text("title"),
+  bio: text("bio"),
+  website: text("website"),
+  avatarUrl: text("avatar_url"),
+  linkedIn: text("linked_in"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const personOrgEdges = pgTable("person_org_edges", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  personId: uuid("person_id")
+    .notNull()
+    .references(() => people.id, { onDelete: "cascade" }),
+  orgId: uuid("org_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  role: text("role"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const insertOrganizationSchema = createInsertSchema(organizations).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertPersonSchema = createInsertSchema(people).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertPersonOrgEdgeSchema = createInsertSchema(personOrgEdges).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type Organization = typeof organizations.$inferSelect;
+export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
+export type Person = typeof people.$inferSelect;
+export type InsertPerson = z.infer<typeof insertPersonSchema>;
+export type PersonOrgEdge = typeof personOrgEdges.$inferSelect;
+export type InsertPersonOrgEdge = z.infer<typeof insertPersonOrgEdgeSchema>;

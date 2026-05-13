@@ -69,6 +69,14 @@ app.use((req, res, next) => {
     console.error("Seed error:", error);
   }
 
+  // Seed social graph on startup if empty
+  try {
+    const { seedGraphData } = await import("./graph-seed");
+    await seedGraphData();
+  } catch (error) {
+    console.error("Graph seed error:", error);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
