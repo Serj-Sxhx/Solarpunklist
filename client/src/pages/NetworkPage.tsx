@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import ForceGraph2D from "react-force-graph-2d";
+import type { ForceGraphMethods, NodeObject } from "react-force-graph-2d";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,20 +41,15 @@ interface GraphData {
   edges: Edge[];
 }
 
-interface GraphNode {
-  id: string;
+// Custom data attached to each force-graph node
+interface NodeData {
   nodeType: "org" | "person";
   label: string;
-  data: Organization | Person;
-  x?: number;
-  y?: number;
+  org?: Organization;
+  person?: Person;
 }
 
-interface GraphLink {
-  source: string;
-  target: string;
-  role?: string | null;
-}
+type FGNode = NodeObject<NodeData>;
 
 // Cache for loaded avatar images
 const imageCache = new Map<string, HTMLImageElement>();
@@ -81,10 +77,11 @@ export default function NetworkPage() {
     queryKey: ["/api/graph"],
   });
 
-  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [selectedNode, setSelectedNode] = useState<FGNode | null>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const containerRef = useRef<HTMLDivElement>(null);
-  const graphRef = useRef<any>(null);
+  // ForceGraphMethods generics: NodeObject<NodeData>, NodeObject<{ role?: string | null }>
+  const graphRef = useRef<ForceGraphMethods<NodeObject<NodeData>>>(undefined as unknown as ForceGraphMethods<NodeObject<NodeData>>);
 
   // Preload avatar images
   useEffect(() => {
@@ -109,25 +106,25 @@ export default function NetworkPage() {
     return () => window.removeEventListener("resize", update);
   }, []);
 
-  const graphData = useCallback((): { nodes: GraphNode[]; links: GraphLink[] } => {
-    if (!data) return { nodes: [], links: [] };
+  const buildGraphData = useCallback(() => {
+    if (!data) return { nodes: [] as FGNode[], links: [] as Array<{ source: string; target: string; role?: string | null }> };
 
-    const nodes: GraphNode[] = [
+    const nodes: FGNode[] = [
       ...data.organizations.map((org) => ({
         id: `org-${org.id}`,
         nodeType: "org" as const,
         label: org.name,
-        data: org,
+        org,
       })),
       ...data.people.map((person) => ({
         id: `person-${person.id}`,
         nodeType: "person" as const,
         label: person.name,
-        data: person,
+        person,
       })),
     ];
 
-    const links: GraphLink[] = data.edges.map((edge) => ({
+    const links = data.edges.map((edge) => ({
       source: `person-${edge.personId}`,
       target: `org-${edge.orgId}`,
       role: edge.role,
@@ -136,13 +133,12 @@ export default function NetworkPage() {
     return { nodes, links };
   }, [data]);
 
-  const drawNode = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-    const graphNode = node as GraphNode;
+  const drawNode = useCallback((node: FGNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const x = node.x ?? 0;
     const y = node.y ?? 0;
 
-    if (graphNode.nodeType === "org") {
-      // Org node: rounded rectangle / pill
+    if (node.nodeType === "org") {
+      // Org: rounded rectangle
       const w = 80;
       const h = 32;
       const r = 8;
@@ -157,27 +153,19 @@ export default function NetworkPage() {
       ctx.lineTo(x - w / 2, y - h / 2 + r);
       ctx.quadraticCurveTo(x - w / 2, y - h / 2, x - w / 2 + r, y - h / 2);
       ctx.closePath();
-
-      // Determine color by org type
-      const org = graphNode.data as Organization;
-      const isExternal = org.type === "external";
-      ctx.fillStyle = isExternal ? "#065f46" : "#14532d";
+      ctx.fillStyle = node.org?.type === "external" ? "#065f46" : "#14532d";
       ctx.fill();
       ctx.strokeStyle = "#34d399";
       ctx.lineWidth = 1.5 / globalScale;
       ctx.stroke();
-
-      // Label
       ctx.font = `bold ${Math.max(8, 11 / globalScale)}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "#ecfdf5";
-      ctx.fillText(graphNode.label.length > 18 ? graphNode.label.slice(0, 16) + "…" : graphNode.label, x, y);
+      ctx.fillText(node.label.length > 18 ? node.label.slice(0, 16) + "…" : node.label, x, y);
     } else {
-      // Person node: circle with avatar or initials
-      const person = graphNode.data as Person;
+      // Person: circle with avatar or initials
       const radius = 20;
-
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, 2 * Math.PI);
       ctx.fillStyle = "#1e293b";
@@ -186,8 +174,9 @@ export default function NetworkPage() {
       ctx.lineWidth = 1.5 / globalScale;
       ctx.stroke();
 
-      if (person.avatarUrl && imageCache.has(person.avatarUrl)) {
-        const img = imageCache.get(person.avatarUrl)!;
+      const avatarUrl = node.person?.avatarUrl;
+      if (avatarUrl && imageCache.has(avatarUrl)) {
+        const img = imageCache.get(avatarUrl)!;
         ctx.save();
         ctx.beginPath();
         ctx.arc(x, y, radius - 1.5 / globalScale, 0, 2 * Math.PI);
@@ -195,13 +184,7 @@ export default function NetworkPage() {
         ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
         ctx.restore();
       } else {
-        // Initials fallback
-        const initials = graphNode.label
-          .split(" ")
-          .slice(0, 2)
-          .map((w: string) => w[0])
-          .join("")
-          .toUpperCase();
+        const initials = node.label.split(" ").slice(0, 2).map((w) => w[0]).join("").toUpperCase();
         ctx.font = `bold ${Math.max(7, 10 / globalScale)}px sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -209,45 +192,45 @@ export default function NetworkPage() {
         ctx.fillText(initials, x, y);
       }
 
-      // Name label below circle
       const fontSize = Math.max(6, 9 / globalScale);
       ctx.font = `${fontSize}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.fillStyle = "#d1fae5";
-      ctx.fillText(
-        graphNode.label.length > 16 ? graphNode.label.slice(0, 14) + "…" : graphNode.label,
-        x,
-        y + radius + 3 / globalScale
-      );
+      ctx.fillText(node.label.length > 16 ? node.label.slice(0, 14) + "…" : node.label, x, y + radius + 3 / globalScale);
     }
   }, []);
 
-  const handleNodeClick = useCallback((node: any) => {
-    setSelectedNode(node as GraphNode);
+  const paintPointerArea = useCallback((node: FGNode, color: string, ctx: CanvasRenderingContext2D) => {
+    const x = node.x ?? 0;
+    const y = node.y ?? 0;
+    if (node.nodeType === "org") {
+      ctx.fillStyle = color;
+      ctx.fillRect(x - 40, y - 16, 80, 32);
+    } else {
+      ctx.beginPath();
+      ctx.arc(x, y, 20, 0, 2 * Math.PI);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
   }, []);
 
-  const handleBackgroundClick = useCallback(() => {
-    setSelectedNode(null);
+  const handleNodeClick = useCallback((node: FGNode) => {
+    setSelectedNode(node);
   }, []);
 
-  const gd = graphData();
+  const gd = buildGraphData();
 
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
             <Network className="w-5 h-5 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-2xl font-extrabold text-foreground tracking-tight">
-              Solarpunk Network
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              People and organizations driving the movement
-            </p>
+            <h1 className="text-2xl font-extrabold text-foreground tracking-tight">Solarpunk Network</h1>
+            <p className="text-sm text-muted-foreground">People and organizations driving the movement</p>
           </div>
           {data && (
             <div className="ml-auto flex gap-3">
@@ -255,9 +238,7 @@ export default function NetworkPage() {
                 <Users className="w-3 h-3" />
                 {data.people.length} people
               </Badge>
-              <Badge variant="outline" className="gap-1">
-                {data.organizations.length} orgs
-              </Badge>
+              <Badge variant="outline">{data.organizations.length} orgs</Badge>
             </div>
           )}
         </div>
@@ -279,9 +260,7 @@ export default function NetworkPage() {
             <Network className="w-12 h-12 text-muted-foreground" />
             <div>
               <p className="font-semibold text-foreground">Graph is being seeded</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                The network will populate after the enrichment pipeline runs.
-              </p>
+              <p className="text-sm text-muted-foreground mt-1">The network will populate after the enrichment pipeline runs.</p>
             </div>
           </div>
         )}
@@ -301,26 +280,13 @@ export default function NetworkPage() {
                 linkWidth={1}
                 backgroundColor="#0a1628"
                 onNodeClick={handleNodeClick}
-                onBackgroundClick={handleBackgroundClick}
-                nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D) => {
-                  const graphNode = node as GraphNode;
-                  if (graphNode.nodeType === "org") {
-                    ctx.fillStyle = color;
-                    ctx.fillRect(node.x - 40, node.y - 16, 80, 32);
-                  } else {
-                    ctx.beginPath();
-                    ctx.arc(node.x, node.y, 20, 0, 2 * Math.PI);
-                    ctx.fillStyle = color;
-                    ctx.fill();
-                  }
-                }}
+                onBackgroundClick={() => setSelectedNode(null)}
+                nodePointerAreaPaint={paintPointerArea}
                 cooldownTicks={80}
                 d3AlphaDecay={0.02}
                 d3VelocityDecay={0.3}
               />
             </div>
-
-            {/* Legend */}
             <div className="absolute bottom-4 left-4 flex gap-3 text-xs text-gray-400">
               <span className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full border border-green-400 bg-slate-800 inline-block" />
@@ -331,14 +297,12 @@ export default function NetworkPage() {
                 Organization
               </span>
             </div>
-
             <div className="absolute bottom-4 right-4 text-xs text-gray-500">
               Scroll to zoom · Drag to pan · Click to inspect
             </div>
           </div>
         )}
 
-        {/* Detail panel */}
         {selectedNode && (
           <Card className="mt-4 p-5 border-border/60 relative">
             <Button
@@ -350,11 +314,18 @@ export default function NetworkPage() {
             >
               <X className="w-4 h-4" />
             </Button>
-
             {selectedNode.nodeType === "person" ? (
-              <PersonDetail person={selectedNode.data as Person} edges={data?.edges ?? []} orgs={data?.organizations ?? []} />
+              <PersonDetail
+                person={selectedNode.person!}
+                edges={data?.edges ?? []}
+                orgs={data?.organizations ?? []}
+              />
             ) : (
-              <OrgDetail org={selectedNode.data as Organization} people={data?.people ?? []} edges={data?.edges ?? []} />
+              <OrgDetail
+                org={selectedNode.org!}
+                people={data?.people ?? []}
+                edges={data?.edges ?? []}
+              />
             )}
           </Card>
         )}
@@ -363,19 +334,11 @@ export default function NetworkPage() {
   );
 }
 
-function PersonDetail({
-  person,
-  edges,
-  orgs,
-}: {
-  person: Person;
-  edges: Edge[];
-  orgs: Organization[];
-}) {
+function PersonDetail({ person, edges, orgs }: { person: Person; edges: Edge[]; orgs: Organization[] }) {
   const personEdges = edges.filter((e) => e.personId === person.id);
   const personOrgs = personEdges
     .map((e) => ({ org: orgs.find((o) => o.id === e.orgId), role: e.role }))
-    .filter((x) => x.org);
+    .filter((x): x is { org: Organization; role: string | null } => x.org !== undefined);
 
   return (
     <div className="flex gap-4">
@@ -399,8 +362,8 @@ function PersonDetail({
         {personOrgs.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2">
             {personOrgs.map(({ org, role }) => (
-              <Badge key={org!.id} variant="secondary" className="text-xs">
-                {role ? `${role} @ ` : ""}{org!.name}
+              <Badge key={org.id} variant="secondary" className="text-xs">
+                {role ? `${role} @ ` : ""}{org.name}
               </Badge>
             ))}
           </div>
@@ -410,8 +373,7 @@ function PersonDetail({
           {person.website && (
             <a href={person.website} target="_blank" rel="noopener noreferrer">
               <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" data-testid="link-person-website">
-                <ExternalLink className="w-3.5 h-3.5" />
-                Website
+                <ExternalLink className="w-3.5 h-3.5" />Website
               </Button>
             </a>
           )}
@@ -428,19 +390,11 @@ function PersonDetail({
   );
 }
 
-function OrgDetail({
-  org,
-  people: allPeople,
-  edges,
-}: {
-  org: Organization;
-  people: Person[];
-  edges: Edge[];
-}) {
+function OrgDetail({ org, people: allPeople, edges }: { org: Organization; people: Person[]; edges: Edge[] }) {
   const orgEdges = edges.filter((e) => e.orgId === org.id);
   const orgPeople = orgEdges
     .map((e) => ({ person: allPeople.find((p) => p.id === e.personId), role: e.role }))
-    .filter((x) => x.person);
+    .filter((x): x is { person: Person; role: string | null } => x.person !== undefined);
 
   return (
     <div>
@@ -455,32 +409,27 @@ function OrgDetail({
         {org.website && (
           <a href={org.website} target="_blank" rel="noopener noreferrer" className="ml-auto">
             <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" data-testid="link-org-website">
-              <ExternalLink className="w-3.5 h-3.5" />
-              Visit
+              <ExternalLink className="w-3.5 h-3.5" />Visit
             </Button>
           </a>
         )}
       </div>
-      {org.description && (
-        <p className="text-sm text-muted-foreground mb-3 leading-relaxed">{org.description}</p>
-      )}
+      {org.description && <p className="text-sm text-muted-foreground mb-3 leading-relaxed">{org.description}</p>}
       {orgPeople.length > 0 && (
         <div>
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-            People ({orgPeople.length})
-          </p>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">People ({orgPeople.length})</p>
           <div className="flex flex-wrap gap-2">
             {orgPeople.map(({ person, role }) => (
-              <div key={person!.id} className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5">
-                {person!.avatarUrl ? (
-                  <img src={person!.avatarUrl} alt={person!.name} className="w-6 h-6 rounded-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              <div key={person.id} className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-1.5">
+                {person.avatarUrl ? (
+                  <img src={person.avatarUrl} alt={person.name} className="w-6 h-6 rounded-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                 ) : (
                   <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-bold text-primary">
-                    {person!.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
+                    {person.name.split(" ").map((w) => w[0]).join("").slice(0, 2)}
                   </div>
                 )}
                 <div>
-                  <p className="text-xs font-medium text-foreground">{person!.name}</p>
+                  <p className="text-xs font-medium text-foreground">{person.name}</p>
                   {role && <p className="text-[10px] text-muted-foreground">{role}</p>}
                 </div>
               </div>

@@ -257,21 +257,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertPersonOrgEdge(data: InsertPersonOrgEdge): Promise<PersonOrgEdge> {
-    // Check if edge already exists
-    const existing = await db
-      .select()
-      .from(personOrgEdges)
-      .where(
-        and(
-          eq(personOrgEdges.personId, data.personId),
-          eq(personOrgEdges.orgId, data.orgId)
-        )
-      )
-      .limit(1);
-
-    if (existing.length > 0) return existing[0];
-
-    const [edge] = await db.insert(personOrgEdges).values(data).returning();
+    const [edge] = await db
+      .insert(personOrgEdges)
+      .values(data)
+      .onConflictDoUpdate({
+        target: [personOrgEdges.personId, personOrgEdges.orgId],
+        set: { role: data.role },
+      })
+      .returning();
     return edge;
   }
 

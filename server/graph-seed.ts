@@ -1,9 +1,11 @@
 /**
- * Seeds the social graph with hardcoded known people from Edge City, OSE,
- * and the top solarpunk communities. Runs once if the people table is empty.
+ * Seeds the social graph with known people from Edge City and OSE (hardcoded,
+ * runs synchronously on first boot), then fires off enrichment for the top
+ * communities from the database as a third cluster (async, non-blocking).
  */
 import { storage } from "./storage";
 import { fetchPersonAvatar } from "./people-image-fetcher";
+import { enrichGraphFromCommunity } from "./graph-enrichment";
 
 interface SeedPerson {
   name: string;
@@ -80,6 +82,45 @@ const SEED_ORGS: SeedOrg[] = [
   },
 ];
 
+async function seedTopCommunities(): Promise<void> {
+  console.log("[graph-seed] Enriching top communities as third graph cluster...");
+  try {
+    const communities = await storage.getCommunities();
+    // Sort by solarpunk score desc, take top 10
+    const top = communities
+      .filter((c) => c.solarpunkScore !== null)
+      .sort((a, b) => (b.solarpunkScore ?? 0) - (a.solarpunkScore ?? 0))
+      .slice(0, 10);
+
+    for (const community of top) {
+      const context = [
+        community.overview ?? "",
+        community.communityLife ?? "",
+        `Website: ${community.websiteUrl ?? ""}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      if (context.length < 50) continue;
+
+      try {
+        await enrichGraphFromCommunity(
+          community.id,
+          community.name,
+          community.slug,
+          community.websiteUrl,
+          context
+        );
+      } catch (err) {
+        console.error(`[graph-seed] Enrichment failed for ${community.name}:`, err);
+      }
+    }
+    console.log("[graph-seed] Top-community enrichment complete.");
+  } catch (err) {
+    console.error("[graph-seed] Top-community enrichment error:", err);
+  }
+}
+
 export async function seedGraphData(): Promise<void> {
   const existingCount = await storage.getPeopleCount();
   if (existingCount > 0) {
@@ -90,7 +131,6 @@ export async function seedGraphData(): Promise<void> {
   console.log("[graph-seed] Seeding social graph with Edge City and OSE people...");
 
   for (const orgData of SEED_ORGS) {
-    // Upsert org
     const org = await storage.upsertOrganization({
       name: orgData.name,
       slug: orgData.slug,
@@ -100,7 +140,6 @@ export async function seedGraphData(): Promise<void> {
     });
 
     for (const personData of orgData.people) {
-      // Fetch avatar
       let avatarUrl: string | null = null;
       try {
         avatarUrl = await fetchPersonAvatar(personData.name, personData.website);
@@ -127,5 +166,9 @@ export async function seedGraphData(): Promise<void> {
     }
   }
 
-  console.log("[graph-seed] Seed complete.");
+  console.log("[graph-seed] Hardcoded seed complete. Starting top-community enrichment...");
+  // Fire-and-forget: enrich top 10 communities as a third cluster
+  seedTopCommunities().catch((err) =>
+    console.error("[graph-seed] seedTopCommunities error:", err)
+  );
 }

@@ -10,6 +10,7 @@ import {
   jsonb,
   serial,
   uuid,
+  unique,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -185,17 +186,23 @@ export const people = pgTable("people", {
   createdAt: timestamp("created_at").default(sql`now()`),
 });
 
-export const personOrgEdges = pgTable("person_org_edges", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  personId: uuid("person_id")
-    .notNull()
-    .references(() => people.id, { onDelete: "cascade" }),
-  orgId: uuid("org_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  role: text("role"),
-  createdAt: timestamp("created_at").default(sql`now()`),
-});
+export const personOrgEdges = pgTable(
+  "person_org_edges",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => people.id, { onDelete: "cascade" }),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    role: text("role"),
+    createdAt: timestamp("created_at").default(sql`now()`),
+  },
+  (table) => ({
+    personOrgUnique: unique().on(table.personId, table.orgId),
+  })
+);
 
 export const insertOrganizationSchema = createInsertSchema(organizations).omit({
   id: true,

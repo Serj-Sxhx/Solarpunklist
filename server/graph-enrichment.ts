@@ -23,8 +23,13 @@ interface ExtractedPerson {
   title: string;
   bio?: string;
   website?: string;
-  linkedIn?: string;
   role: string;
+}
+
+function isExtractedPerson(val: unknown): val is ExtractedPerson {
+  if (!val || typeof val !== "object") return false;
+  const obj = val as Record<string, unknown>;
+  return typeof obj.name === "string" && obj.name.length > 2 && typeof obj.role === "string";
 }
 
 async function extractPeopleFromCommunity(
@@ -71,8 +76,9 @@ Rules:
     if (content.type !== "text") return [];
     const match = content.text.match(/\[[\s\S]*\]/);
     if (!match) return [];
-    const parsed = JSON.parse(match[0]);
-    return Array.isArray(parsed) ? parsed.filter((p: any) => p.name && p.name.length > 2) : [];
+    const parsed: unknown = JSON.parse(match[0]);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isExtractedPerson);
   } catch (err) {
     console.error(`[graph-enrichment] Claude error for ${communityName}:`, err);
     return [];
@@ -88,7 +94,6 @@ export async function enrichGraphFromCommunity(
 ): Promise<number> {
   console.log(`[graph-enrichment] Enriching graph for: ${communityName}`);
 
-  // Ensure org node exists for this community
   const org = await storage.upsertOrganization({
     name: communityName,
     slug: communitySlug,
@@ -107,7 +112,6 @@ export async function enrichGraphFromCommunity(
   for (const personData of extracted) {
     const personSlug = slugify(personData.name);
 
-    // Fetch avatar
     let avatarUrl: string | null = null;
     try {
       avatarUrl = await fetchPersonAvatar(personData.name, websiteUrl);
@@ -119,7 +123,7 @@ export async function enrichGraphFromCommunity(
       title: personData.title,
       bio: personData.bio,
       website: personData.website || websiteUrl,
-      linkedIn: personData.linkedIn,
+      linkedIn: null,
       avatarUrl,
     });
 
@@ -151,9 +155,9 @@ export async function enrichGraphFromAllCommunities(): Promise<{
   for (const community of communities) {
     try {
       const context = [
-        community.overview || "",
-        community.communityLife || "",
-        `Website: ${community.websiteUrl || ""}`,
+        community.overview ?? "",
+        community.communityLife ?? "",
+        `Website: ${community.websiteUrl ?? ""}`,
       ]
         .filter(Boolean)
         .join("\n\n");
@@ -169,8 +173,8 @@ export async function enrichGraphFromAllCommunities(): Promise<{
       );
       peopleAdded += added;
       communitiesProcessed++;
-    } catch (err: any) {
-      errors.push(`${community.name}: ${err.message}`);
+    } catch (err: unknown) {
+      errors.push(`${community.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
