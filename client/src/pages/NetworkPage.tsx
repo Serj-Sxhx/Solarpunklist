@@ -1,12 +1,31 @@
 import { useRef, useEffect, useCallback, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import ForceGraph2D from "react-force-graph-2d";
 import type { ForceGraphMethods, NodeObject } from "react-force-graph-2d";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Users, ExternalLink, X, Network } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, Users, ExternalLink, X, Network, UserPlus } from "lucide-react";
 import { useSEO } from "@/hooks/useSEO";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface Organization {
   id: string;
@@ -65,6 +84,206 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
+interface AddYourselfFormData {
+  name: string;
+  title: string;
+  orgId: string;
+  bio: string;
+  website: string;
+  avatarUrl: string;
+  website_confirm: string; // honeypot
+}
+
+function AddYourselfDialog({
+  open,
+  onClose,
+  organizations,
+}: {
+  open: boolean;
+  onClose: () => void;
+  organizations: Organization[];
+}) {
+  const { toast } = useToast();
+  const [form, setForm] = useState<AddYourselfFormData>({
+    name: "",
+    title: "",
+    orgId: "",
+    bio: "",
+    website: "",
+    avatarUrl: "",
+    website_confirm: "",
+  });
+
+  const mutation = useMutation({
+    mutationFn: async (data: AddYourselfFormData) => {
+      const resp = await apiRequest("POST", "/api/people/submit", data);
+      return resp.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/graph"] });
+      toast({
+        title: "Welcome to the network!",
+        description: "Your profile has been added to the map.",
+      });
+      onClose();
+      setForm({ name: "", title: "", orgId: "", bio: "", website: "", avatarUrl: "", website_confirm: "" });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Submission failed",
+        description: err?.message || "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name.trim() || form.name.trim().length < 2) {
+      toast({ title: "Name required", description: "Please enter your name (at least 2 characters).", variant: "destructive" });
+      return;
+    }
+    mutation.mutate(form);
+  };
+
+  const set = (field: keyof AddYourselfFormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm((prev) => ({ ...prev, [field]: e.target.value }));
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add Yourself to the Network</DialogTitle>
+          <DialogDescription>
+            Join the map of people and organizations driving the solarpunk movement.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+          {/* Honeypot field — hidden from real users */}
+          <div className="hidden" aria-hidden="true">
+            <input
+              tabIndex={-1}
+              autoComplete="off"
+              name="website_confirm"
+              value={form.website_confirm}
+              onChange={set("website_confirm")}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="person-name">
+              Name <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="person-name"
+              data-testid="input-person-name"
+              placeholder="Your full name"
+              value={form.name}
+              onChange={set("name")}
+              maxLength={120}
+              required
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="person-title">Title / Role</Label>
+            <Input
+              id="person-title"
+              data-testid="input-person-title"
+              placeholder="e.g. Founder, Designer, Farmer"
+              value={form.title}
+              onChange={set("title")}
+              maxLength={120}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="person-org">Affiliated Community or Org</Label>
+            <Select
+              value={form.orgId}
+              onValueChange={(val) => setForm((prev) => ({ ...prev, orgId: val }))}
+            >
+              <SelectTrigger id="person-org" data-testid="select-person-org">
+                <SelectValue placeholder="Select a community or org (optional)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None / Independent</SelectItem>
+                {organizations
+                  .slice()
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((org) => (
+                    <SelectItem key={org.id} value={org.id} data-testid={`option-org-${org.id}`}>
+                      {org.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="person-bio">Bio</Label>
+            <Textarea
+              id="person-bio"
+              data-testid="input-person-bio"
+              placeholder="A short intro — your work, interests, or what you're building"
+              value={form.bio}
+              onChange={set("bio")}
+              maxLength={1000}
+              rows={3}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="person-website">Website</Label>
+            <Input
+              id="person-website"
+              data-testid="input-person-website"
+              placeholder="https://yoursite.com"
+              type="url"
+              value={form.website}
+              onChange={set("website")}
+              maxLength={500}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="person-avatar">Photo URL</Label>
+            <Input
+              id="person-avatar"
+              data-testid="input-person-avatar"
+              placeholder="https://example.com/your-photo.jpg"
+              type="url"
+              value={form.avatarUrl}
+              onChange={set("avatarUrl")}
+              maxLength={500}
+            />
+            <p className="text-xs text-muted-foreground">Link to a portrait photo of yourself (optional)</p>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={onClose} data-testid="button-cancel-add-person">
+              Cancel
+            </Button>
+            <Button type="submit" disabled={mutation.isPending} data-testid="button-submit-add-person">
+              {mutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Adding…
+                </>
+              ) : (
+                <>
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Join the Network
+                </>
+              )}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function NetworkPage() {
   useSEO({
     title: "Network — People & Orgs | SolarpunkList",
@@ -79,8 +298,8 @@ export default function NetworkPage() {
 
   const [selectedNode, setSelectedNode] = useState<FGNode | null>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  // ForceGraphMethods generics: NodeObject<NodeData>, NodeObject<{ role?: string | null }>
   const graphRef = useRef<ForceGraphMethods | undefined>(undefined);
 
   // Preload avatar images
@@ -138,7 +357,6 @@ export default function NetworkPage() {
     const y = node.y ?? 0;
 
     if (node.nodeType === "org") {
-      // Org: rounded rectangle
       const w = 80;
       const h = 32;
       const r = 8;
@@ -164,7 +382,6 @@ export default function NetworkPage() {
       ctx.fillStyle = "#ecfdf5";
       ctx.fillText(node.label.length > 18 ? node.label.slice(0, 16) + "…" : node.label, x, y);
     } else {
-      // Person: circle with avatar or initials
       const radius = 20;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, 2 * Math.PI);
@@ -232,15 +449,26 @@ export default function NetworkPage() {
             <h1 className="text-2xl font-extrabold text-foreground tracking-tight">Solarpunk Network</h1>
             <p className="text-sm text-muted-foreground">People and organizations driving the movement</p>
           </div>
-          {data && (
-            <div className="ml-auto flex gap-3">
-              <Badge variant="secondary" className="gap-1">
-                <Users className="w-3 h-3" />
-                {data.people.length} people
-              </Badge>
-              <Badge variant="outline">{data.organizations.length} orgs</Badge>
-            </div>
-          )}
+          <div className="ml-auto flex items-center gap-3 flex-wrap justify-end">
+            {data && (
+              <>
+                <Badge variant="secondary" className="gap-1">
+                  <Users className="w-3 h-3" />
+                  {data.people.length} people
+                </Badge>
+                <Badge variant="outline">{data.organizations.length} orgs</Badge>
+              </>
+            )}
+            <Button
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setAddDialogOpen(true)}
+              data-testid="button-add-yourself"
+            >
+              <UserPlus className="w-4 h-4" />
+              Add Yourself
+            </Button>
+          </div>
         </div>
 
         {isLoading && (
@@ -330,6 +558,12 @@ export default function NetworkPage() {
           </Card>
         )}
       </div>
+
+      <AddYourselfDialog
+        open={addDialogOpen}
+        onClose={() => setAddDialogOpen(false)}
+        organizations={data?.organizations ?? []}
+      />
     </div>
   );
 }

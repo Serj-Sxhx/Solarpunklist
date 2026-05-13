@@ -516,6 +516,89 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
+  // Simple in-memory rate limiter: max 3 submissions per IP per hour
+  const submitRateMap = new Map<string, number[]>();
+
+  app.post("/api/people/submit", async (req, res) => {
+    try {
+      // Honeypot check — bots fill this hidden field
+      if (req.body.website_confirm) {
+        return res.json({ success: true }); // silent success to confuse bots
+      }
+
+      // Rate limiting
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+      const now = Date.now();
+      const windowMs = 60 * 60 * 1000; // 1 hour
+      const timestamps = (submitRateMap.get(ip) || []).filter((t) => now - t < windowMs);
+      if (timestamps.length >= 3) {
+        return res.status(429).json({ error: "Too many submissions. Please try again later." });
+      }
+      timestamps.push(now);
+      submitRateMap.set(ip, timestamps);
+
+      const { name, title, orgId, bio, website, avatarUrl } = req.body;
+
+      if (!name || typeof name !== "string" || name.trim().length < 2) {
+        return res.status(400).json({ error: "Name is required (at least 2 characters)." });
+      }
+
+      const trimmedName = name.trim().slice(0, 120);
+
+      // Generate a unique slug
+      const baseSlug = trimmedName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+
+      const graphData = await storage.getGraphData();
+      const existingSlugs = new Set(graphData.people.map((p) => p.slug));
+      let slug = baseSlug;
+      let counter = 2;
+      while (existingSlugs.has(slug)) {
+        slug = `${baseSlug}-${counter++}`;
+      }
+
+      // Validate URL fields — only allow http/https
+      function sanitizeUrl(raw: unknown): string | null {
+        if (!raw || typeof raw !== "string") return null;
+        const trimmed = raw.trim().slice(0, 500);
+        if (!trimmed) return null;
+        try {
+          const parsed = new URL(trimmed);
+          if (!["http:", "https:"].includes(parsed.protocol)) return null;
+          return trimmed;
+        } catch {
+          return null;
+        }
+      }
+
+      const person = await storage.upsertPerson({
+        name: trimmedName,
+        slug,
+        title: title?.trim().slice(0, 120) || null,
+        bio: bio?.trim().slice(0, 1000) || null,
+        website: sanitizeUrl(website),
+        avatarUrl: sanitizeUrl(avatarUrl),
+        linkedIn: null,
+      });
+
+      // Treat "none" (the dropdown placeholder value) as no org selected
+      const resolvedOrgId = orgId && orgId !== "none" ? orgId : null;
+      if (resolvedOrgId && typeof resolvedOrgId === "string") {
+        const org = graphData.organizations.find((o) => o.id === resolvedOrgId);
+        if (org) {
+          await storage.upsertPersonOrgEdge({ personId: person.id, orgId: org.id, role: title?.trim().slice(0, 80) || null });
+        }
+      }
+
+      res.json({ success: true, person });
+    } catch (error: any) {
+      console.error("People submit error:", error);
+      res.status(500).json({ error: "Failed to add profile. Please try again." });
+    }
+  });
+
   app.post("/api/admin/enrich-graph", async (_req, res) => {
     try {
       const { enrichGraphFromAllCommunities } = await import("./graph-enrichment");
