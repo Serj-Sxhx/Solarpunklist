@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Search, CheckCircle2, XCircle, ExternalLink, Globe, MapPin } from "lucide-react";
+import { Loader2, Search, CheckCircle2, XCircle, ExternalLink, Globe, MapPin, Users } from "lucide-react";
 
 function parseApiError(err: unknown): string {
   const msg = (err as any)?.message || "Something went wrong";
@@ -39,8 +39,27 @@ interface ResearchResult {
 
 type Step = "input" | "select" | "processing" | "done";
 
+interface EnrichResult {
+  communitiesProcessed: number;
+  peopleAdded: number;
+  errors: string[];
+}
+
 export default function DirectoryManagerPage() {
   const [step, setStep] = useState<Step>("input");
+  const [enrichResult, setEnrichResult] = useState<EnrichResult | null>(null);
+
+  const enrichMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/enrich-graph", {});
+      return res.json() as Promise<EnrichResult>;
+    },
+    onSuccess: (data) => {
+      setEnrichResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/graph"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/people"] });
+    },
+  });
   const [directoryUrl, setDirectoryUrl] = useState("");
   const [entries, setEntries] = useState<ScrapedEntry[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -157,6 +176,86 @@ export default function DirectoryManagerPage() {
       <p className="text-muted-foreground mb-8">
         Scrape an external directory to bulk-add communities to SolarpunkList.
       </p>
+
+      <Card className="mb-8" data-testid="card-enrich-graph">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Users className="w-5 h-5" />
+            Enrich Network Graph
+          </CardTitle>
+          <CardDescription>
+            Automatically extract founders and core team members from all communities in the directory using AI, and add them to the social graph.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4 flex-wrap">
+            <Button
+              data-testid="button-enrich-graph"
+              onClick={() => {
+                setEnrichResult(null);
+                enrichMutation.mutate();
+              }}
+              disabled={enrichMutation.isPending}
+            >
+              {enrichMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Enriching graph...
+                </>
+              ) : (
+                <>
+                  <Users className="w-4 h-4 mr-2" />
+                  Run Graph Backfill
+                </>
+              )}
+            </Button>
+            {enrichMutation.isPending && (
+              <p className="text-sm text-muted-foreground">
+                Scanning all communities with Claude to find named founders. This may take several minutes...
+              </p>
+            )}
+          </div>
+
+          {enrichMutation.isError && (
+            <p className="text-sm text-red-500 mt-3" data-testid="text-enrich-error">
+              {parseApiError(enrichMutation.error)}
+            </p>
+          )}
+
+          {enrichResult && (
+            <div className="mt-4 p-4 rounded-lg bg-accent/40 border" data-testid="div-enrich-result">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle2 className="w-5 h-5 text-green-500" />
+                    <span className="font-medium">Backfill complete</span>
+                  </div>
+                  <div className="text-sm text-muted-foreground space-y-1">
+                    <p data-testid="text-communities-processed">
+                      Communities scanned: <span className="font-medium text-foreground">{enrichResult.communitiesProcessed}</span>
+                    </p>
+                    <p data-testid="text-people-added">
+                      People added to graph: <span className="font-medium text-foreground">{enrichResult.peopleAdded}</span>
+                    </p>
+                    {enrichResult.errors.length > 0 && (
+                      <p className="text-orange-600" data-testid="text-enrich-errors">
+                        {enrichResult.errors.length} communities had errors
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <a
+                  href="/network"
+                  className="text-sm text-primary hover:underline flex items-center gap-1 shrink-0"
+                  data-testid="link-view-network"
+                >
+                  View Network <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {step === "input" && (
         <Card data-testid="card-scrape-input">
