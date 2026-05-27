@@ -22,6 +22,9 @@ export function Header() {
             <Link href="/network" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors no-underline">
               Network
             </Link>
+            <Link href="/newsletter" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors no-underline">
+              Newsletter
+            </Link>
             <Link href="/about" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors no-underline">
               About
             </Link>

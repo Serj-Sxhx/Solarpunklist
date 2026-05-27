@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Users, TrendingUp, Upload } from "lucide-react";
 
 export function Footer() {
@@ -11,9 +12,13 @@ export function Footer() {
     <footer className="border-t border-border/40 bg-background" data-testid="footer">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-xs text-muted-foreground">
-            SolarpunkList — AI-powered directory of regenerative communities
-          </p>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span>SolarpunkList — AI-powered directory of regenerative communities</span>
+            <span className="hidden sm:inline">·</span>
+            <Link href="/newsletter" className="hidden sm:inline hover:text-foreground transition-colors no-underline" data-testid="link-newsletter-footer">
+              Newsletter
+            </Link>
+          </div>
           {stats && stats.totalVisits > 0 && (
             <div className="flex items-center gap-4" data-testid="text-visit-stats">
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
