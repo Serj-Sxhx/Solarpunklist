@@ -54,4 +54,3 @@ timeoutMs = 20000
 
 [userenv.shared]
 DIGEST_FROM_EMAIL = "SolarpunkDigest <digest@digest.solarpunklist.com>"
-CRON_SECRET = "LBU5f1MhvGZ8cVSnogHxMAjCtrt13R2u"
