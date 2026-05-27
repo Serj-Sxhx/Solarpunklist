@@ -3,6 +3,16 @@ import { Resend } from "resend";
 import { storage } from "./storage";
 import type { NewsletterItem } from "@shared/schema";
 
+interface FeaturedCommunity {
+  name: string;
+  slug: string;
+  tagline: string | null;
+  location: string | null;
+  heroImageUrl: string | null;
+  solarpunkScore: number | null;
+  stage: string | null;
+}
+
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
   baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
@@ -154,7 +164,38 @@ function safeUrl(url: string | null | undefined): string {
   return "#";
 }
 
-function renderDigestHtml(digest: DigestJson, unsubscribeUrl: string): string {
+function renderFeaturedCommunityHtml(community: FeaturedCommunity, baseUrl: string): string {
+  const communityUrl = `${baseUrl}/community/${community.slug}`;
+  const scoreDisplay = community.solarpunkScore != null
+    ? `<span style="display:inline-block;background:#a7d4b5;color:#1a3a2a;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;margin-right:6px;">🌱 Score ${community.solarpunkScore}</span>`
+    : "";
+  const stageDisplay = community.stage
+    ? `<span style="display:inline-block;background:rgba(255,255,255,0.15);color:#e8f5e9;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;margin-right:6px;">${esc(community.stage)}</span>`
+    : "";
+  const locationDisplay = community.location
+    ? `<p style="margin:0 0 12px;color:#a7d4b5;font-size:13px;">📍 ${esc(community.location)}</p>`
+    : "";
+  const heroImg = community.heroImageUrl
+    ? `<img src="${esc(safeUrl(community.heroImageUrl))}" alt="${esc(community.name)}" style="width:100%;height:180px;object-fit:cover;border-radius:8px;margin-bottom:16px;display:block;" />`
+    : `<div style="width:100%;height:100px;background:linear-gradient(135deg,#1a3a2a,#2d5a3d);border-radius:8px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;"><span style="font-size:36px;">🌿</span></div>`;
+
+  return `
+    <tr>
+      <td style="padding:0 24px 8px;">
+        <div style="background:linear-gradient(135deg,#1a3a2a,#2d5a3d);border-radius:12px;padding:24px;margin-top:8px;">
+          <p style="margin:0 0 14px;color:#a7d4b5;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">🌿 Featured Community from the Directory</p>
+          ${heroImg}
+          <h3 style="margin:0 0 6px;color:#ffffff;font-size:18px;font-weight:800;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">${esc(community.name)}</h3>
+          ${locationDisplay}
+          ${community.tagline ? `<p style="margin:0 0 14px;color:#d4edd9;font-size:14px;line-height:1.6;">${esc(community.tagline)}</p>` : ""}
+          <div style="margin-bottom:16px;">${scoreDisplay}${stageDisplay}</div>
+          <a href="${esc(safeUrl(communityUrl))}" style="display:inline-block;background:#4a7c59;color:#ffffff;font-size:13px;font-weight:700;padding:10px 20px;border-radius:8px;text-decoration:none;">Explore Community →</a>
+        </div>
+      </td>
+    </tr>`;
+}
+
+function renderDigestHtml(digest: DigestJson, unsubscribeUrl: string, featuredCommunity?: FeaturedCommunity, baseUrl?: string): string {
   const sectionsHtml = digest.sections
     .map(
       (section) => `
@@ -218,6 +259,9 @@ function renderDigestHtml(digest: DigestJson, unsubscribeUrl: string): string {
       <!-- Sections -->
       ${sectionsHtml}
 
+      <!-- Featured Community -->
+      ${featuredCommunity ? renderFeaturedCommunityHtml(featuredCommunity, baseUrl || "https://solarpunklist.com") : ""}
+
       <!-- Footer -->
       <tr>
         <td style="padding:24px;background:#f0ede6;border-top:1px solid #e0dbd0;text-align:center;">
@@ -227,7 +271,7 @@ function renderDigestHtml(digest: DigestJson, unsubscribeUrl: string): string {
           <p style="margin:0;font-size:12px;">
             <a href="${esc(safeUrl(unsubscribeUrl))}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>
             &nbsp;·&nbsp;
-            <a href="https://solarpunklist.com" style="color:#4a7c59;text-decoration:none;font-weight:600;">Powered by SolarpunkList</a>
+            <a href="${esc(safeUrl(baseUrl || "https://solarpunklist.com"))}" style="color:#4a7c59;text-decoration:none;font-weight:600;">Powered by SolarpunkList</a>
           </p>
         </td>
       </tr>
@@ -255,7 +299,7 @@ export async function generateDigest(issueId: string): Promise<void> {
   const issue = await storage.getNewsletterDigestIssue(issueId);
   if (!issue) throw new Error(`Issue ${issueId} not found`);
 
-  const selectedItems = issue.items.filter((item) => item.isSelected);
+  const selectedItems = issue.items.filter((item) => item.isSelected === true);
   if (selectedItems.length === 0) throw new Error("No selected items to generate digest from");
 
   console.log(`[newsletter-digest] Generating digest for issue ${issueId} with ${selectedItems.length} items`);
@@ -267,9 +311,31 @@ export async function generateDigest(issueId: string): Promise<void> {
       ? `https://${process.env.REPLIT_DEV_DOMAIN}`
       : "https://solarpunklist.com";
 
+  // Pick a random published community to feature at the bottom
+  let featuredCommunity: FeaturedCommunity | undefined;
+  try {
+    const allCommunities = await storage.getCommunities();
+    const published = allCommunities.filter((c) => c.isPublished);
+    if (published.length > 0) {
+      const pick = published[Math.floor(Math.random() * published.length)];
+      featuredCommunity = {
+        name: pick.name,
+        slug: pick.slug,
+        tagline: pick.tagline ?? null,
+        location: pick.location ?? null,
+        heroImageUrl: pick.heroImageUrl ?? null,
+        solarpunkScore: pick.solarpunkScore ?? null,
+        stage: pick.stage ?? null,
+      };
+      console.log(`[newsletter-digest] Featured community: ${featuredCommunity.name}`);
+    }
+  } catch (err) {
+    console.warn("[newsletter-digest] Could not fetch featured community:", err);
+  }
+
   // Use a placeholder token — real token is interpolated per-subscriber at send time
   const placeholderUnsubUrl = `${baseUrl}/api/newsletter/unsubscribe?token=UNSUBSCRIBE_TOKEN`;
-  const generatedHtml = renderDigestHtml(digestJson, placeholderUnsubUrl);
+  const generatedHtml = renderDigestHtml(digestJson, placeholderUnsubUrl, featuredCommunity, baseUrl);
   const generatedMarkdown = renderDigestMarkdown(digestJson);
 
   await storage.updateNewsletterDigestIssue(issueId, {
