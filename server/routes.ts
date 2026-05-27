@@ -560,7 +560,7 @@ Return ONLY valid JSON, no explanation.`,
       }
 
       // Validate URL fields — only allow http/https
-      function sanitizeUrl(raw: unknown): string | null {
+      const sanitizeUrl = (raw: unknown): string | null => {
         if (!raw || typeof raw !== "string") return null;
         const trimmed = raw.trim().slice(0, 500);
         if (!trimmed) return null;
@@ -571,7 +571,7 @@ Return ONLY valid JSON, no explanation.`,
         } catch {
           return null;
         }
-      }
+      };
 
       const person = await storage.upsertPerson({
         name: trimmedName,
