@@ -49,3 +49,8 @@ integrations = ["javascript_anthropic_ai_integrations:2.0.0", "resend:1.0.0"]
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+DIGEST_FROM_EMAIL = "SolarpunkDigest <digest@digest.solarpunklist.com>"

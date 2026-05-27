@@ -317,7 +317,7 @@ export async function sendDigest(issueId: string): Promise<{ recipientCount: num
         );
 
         return client.emails.send({
-          from: fromEmail,
+          from: process.env.DIGEST_FROM_EMAIL || fromEmail,
           to: subscriber.email,
           subject,
           html: personalizedHtml,
