@@ -109,6 +109,10 @@ export const refreshRuns = pgTable("refresh_runs", {
 export const emailSubscribers = pgTable("email_subscribers", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   email: text("email").notNull().unique(),
+  name: text("name"),
+  isActive: boolean("is_active").default(true),
+  unsubscribedAt: timestamp("unsubscribed_at"),
+  unsubscribeToken: text("unsubscribe_token"),
   createdAt: timestamp("created_at").default(sql`now()`),
 });
 
@@ -225,3 +229,79 @@ export type Person = typeof people.$inferSelect;
 export type InsertPerson = z.infer<typeof insertPersonSchema>;
 export type PersonOrgEdge = typeof personOrgEdges.$inferSelect;
 export type InsertPersonOrgEdge = z.infer<typeof insertPersonOrgEdgeSchema>;
+
+// ── Newsletter ────────────────────────────────────────────────────────────────
+
+export const newsletterResearchRuns = pgTable("newsletter_research_runs", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  runDate: timestamp("run_date").default(sql`now()`),
+  queriesExecuted: integer("queries_executed").default(0),
+  itemsFound: integer("items_found").default(0),
+  itemsNew: integer("items_new").default(0),
+  itemsDuplicate: integer("items_duplicate").default(0),
+  errors: jsonb("errors"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+});
+
+export const newsletterDigestIssues = pgTable("newsletter_digest_issues", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  issueNumber: serial("issue_number").unique(),
+  subject: text("subject"),
+  introText: text("intro_text"),
+  generatedHtml: text("generated_html"),
+  generatedMarkdown: text("generated_markdown"),
+  status: text("status").default("draft"), // draft | generated | approved | sent | discarded
+  sentAt: timestamp("sent_at"),
+  recipientCount: integer("recipient_count"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
+export const newsletterItems = pgTable("newsletter_items", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  researchRunId: uuid("research_run_id").references(() => newsletterResearchRuns.id),
+  title: text("title").notNull(),
+  summary: text("summary"),
+  sourceUrl: text("source_url").unique().notNull(),
+  sourceDomain: text("source_domain"),
+  publishedAt: timestamp("published_at"),
+  subcategoryTags: text("subcategory_tags").array().default(sql`'{}'::text[]`),
+  tags: text("tags").array().default(sql`'{}'::text[]`),
+  relevanceScore: real("relevance_score"),
+  trlLevel: integer("trl_level"),
+  trlReasoning: text("trl_reasoning"),
+  frontierScore: real("frontier_score"),
+  isFrontier: boolean("is_frontier").default(false),
+  imageUrl: text("image_url"),
+  isSelected: boolean("is_selected").default(false),
+  adminNotes: text("admin_notes"),
+  digestIssueId: uuid("digest_issue_id").references(() => newsletterDigestIssues.id),
+  sortOrder: integer("sort_order"),
+  createdAt: timestamp("created_at").default(sql`now()`),
+  updatedAt: timestamp("updated_at").default(sql`now()`),
+});
+
+export const insertNewsletterResearchRunSchema = createInsertSchema(newsletterResearchRuns).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertNewsletterItemSchema = createInsertSchema(newsletterItems).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertNewsletterDigestIssueSchema = createInsertSchema(newsletterDigestIssues).omit({
+  id: true,
+  issueNumber: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type NewsletterResearchRun = typeof newsletterResearchRuns.$inferSelect;
+export type InsertNewsletterResearchRun = z.infer<typeof insertNewsletterResearchRunSchema>;
+export type NewsletterItem = typeof newsletterItems.$inferSelect;
+export type InsertNewsletterItem = z.infer<typeof insertNewsletterItemSchema>;
+export type NewsletterDigestIssue = typeof newsletterDigestIssues.$inferSelect;
+export type InsertNewsletterDigestIssue = z.infer<typeof insertNewsletterDigestIssueSchema>;

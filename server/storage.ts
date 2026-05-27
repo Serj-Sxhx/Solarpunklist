@@ -1,4 +1,4 @@
-import { eq, desc, asc, ilike, and, inArray, sql } from "drizzle-orm";
+import { eq, desc, asc, ilike, and, inArray, gte, lte, isNull, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   communities,
@@ -12,6 +12,9 @@ import {
   organizations,
   people,
   personOrgEdges,
+  newsletterResearchRuns,
+  newsletterItems,
+  newsletterDigestIssues,
   type Community,
   type InsertCommunity,
   type CommunityWithRelations,
@@ -25,7 +28,29 @@ import {
   type InsertPerson,
   type PersonOrgEdge,
   type InsertPersonOrgEdge,
+  type NewsletterResearchRun,
+  type InsertNewsletterResearchRun,
+  type NewsletterItem,
+  type InsertNewsletterItem,
+  type NewsletterDigestIssue,
+  type InsertNewsletterDigestIssue,
 } from "@shared/schema";
+
+// ── Newsletter filter types ───────────────────────────────────────────────────
+
+export interface NewsletterItemFilters {
+  subcategoryTag?: string;
+  trlRange?: "1-3" | "4-6" | "7-9";
+  isFrontier?: boolean;
+  isSelected?: boolean;
+  digestIssueId?: string | null;
+  from?: Date;
+  to?: Date;
+  sort?: "frontierScore" | "relevanceScore" | "createdAt";
+  order?: "asc" | "desc";
+}
+
+// ── Storage interface ─────────────────────────────────────────────────────────
 
 export interface IStorage {
   getCommunities(): Promise<CommunityWithRelations[]>;
@@ -39,7 +64,7 @@ export interface IStorage {
   getImagesByCommunityId(communityId: string): Promise<CommunityImage[]>;
   getCommunityCount(): Promise<number>;
   getAllPublishedSlugs(): Promise<string[]>;
-  addEmailSubscriber(email: string): Promise<EmailSubscriber>;
+  addEmailSubscriber(email: string, name?: string): Promise<EmailSubscriber>;
   getAllSubscriberEmails(): Promise<string[]>;
   trackVisit(path: string): Promise<void>;
   getVisitStats(): Promise<{ totalVisits: number; monthlyAverage: number; userSubmissions: number }>;
@@ -54,7 +79,31 @@ export interface IStorage {
     people: Person[];
     edges: PersonOrgEdge[];
   }>;
+
+  // Newsletter — research runs
+  createNewsletterResearchRun(data?: Partial<InsertNewsletterResearchRun>): Promise<NewsletterResearchRun>;
+  updateNewsletterResearchRun(id: string, data: Partial<InsertNewsletterResearchRun>): Promise<NewsletterResearchRun | undefined>;
+
+  // Newsletter — items
+  createNewsletterItem(data: InsertNewsletterItem): Promise<NewsletterItem>;
+  listNewsletterItems(filters?: NewsletterItemFilters): Promise<NewsletterItem[]>;
+  updateNewsletterItem(id: string, data: Partial<InsertNewsletterItem>): Promise<NewsletterItem | undefined>;
+  bulkUpdateNewsletterItems(ids: string[], data: Partial<InsertNewsletterItem>): Promise<void>;
+  getExistingNewsletterSourceUrls(): Promise<Set<string>>;
+
+  // Newsletter — digest issues
+  createNewsletterDigestIssue(data?: Partial<InsertNewsletterDigestIssue>): Promise<NewsletterDigestIssue>;
+  getNewsletterDigestIssue(id: string): Promise<(NewsletterDigestIssue & { items: NewsletterItem[] }) | undefined>;
+  listNewsletterDigestIssues(): Promise<NewsletterDigestIssue[]>;
+  updateNewsletterDigestIssue(id: string, data: Partial<InsertNewsletterDigestIssue>): Promise<NewsletterDigestIssue | undefined>;
+
+  // Newsletter — subscribers
+  listActiveSubscribers(): Promise<EmailSubscriber[]>;
+  deactivateSubscriber(token: string): Promise<EmailSubscriber | undefined>;
+  updateEmailSubscriber(id: string, data: Partial<EmailSubscriber>): Promise<EmailSubscriber | undefined>;
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function enrichCommunity(community: Community): Promise<CommunityWithRelations> {
   const [tags, links, images] = await Promise.all([
@@ -65,6 +114,8 @@ async function enrichCommunity(community: Community): Promise<CommunityWithRelat
 
   return { ...community, tags, links, images };
 }
+
+// ── Implementation ────────────────────────────────────────────────────────────
 
 export class DatabaseStorage implements IStorage {
   async getCommunities(): Promise<CommunityWithRelations[]> {
@@ -146,21 +197,19 @@ export class DatabaseStorage implements IStorage {
     return results.map((r) => r.slug);
   }
 
-  async addEmailSubscriber(email: string): Promise<EmailSubscriber> {
+  async addEmailSubscriber(email: string, name?: string): Promise<EmailSubscriber> {
+    const token = crypto.randomUUID();
     const [subscriber] = await db
       .insert(emailSubscribers)
-      .values({ email })
-      .onConflictDoNothing()
+      .values({ email, name, isActive: true, unsubscribeToken: token })
+      .onConflictDoUpdate({
+        target: emailSubscribers.email,
+        set: { isActive: true, unsubscribedAt: null, ...(name ? { name } : {}) },
+      })
       .returning();
-    if (!subscriber) {
-      const [existing] = await db
-        .select()
-        .from(emailSubscribers)
-        .where(eq(emailSubscribers.email, email));
-      return existing;
-    }
     return subscriber;
   }
+
   async getAllSubscriberEmails(): Promise<string[]> {
     const results = await db
       .select({ email: emailSubscribers.email })
@@ -248,7 +297,6 @@ export class DatabaseStorage implements IStorage {
           bio: data.bio,
           website: data.website,
           linkedIn: data.linkedIn,
-          // Only update avatarUrl if we have a new one
           ...(data.avatarUrl ? { avatarUrl: data.avatarUrl } : {}),
         },
       })
@@ -279,6 +327,189 @@ export class DatabaseStorage implements IStorage {
       db.select().from(personOrgEdges),
     ]);
     return { organizations: orgs, people: persons, edges };
+  }
+
+  // ── Newsletter — Research Runs ───────────────────────────────────────────────
+
+  async createNewsletterResearchRun(data: Partial<InsertNewsletterResearchRun> = {}): Promise<NewsletterResearchRun> {
+    const [run] = await db
+      .insert(newsletterResearchRuns)
+      .values({ queriesExecuted: 0, itemsFound: 0, itemsNew: 0, itemsDuplicate: 0, ...data })
+      .returning();
+    return run;
+  }
+
+  async updateNewsletterResearchRun(id: string, data: Partial<InsertNewsletterResearchRun>): Promise<NewsletterResearchRun | undefined> {
+    const [run] = await db
+      .update(newsletterResearchRuns)
+      .set(data)
+      .where(eq(newsletterResearchRuns.id, id))
+      .returning();
+    return run;
+  }
+
+  // ── Newsletter — Items ───────────────────────────────────────────────────────
+
+  async createNewsletterItem(data: InsertNewsletterItem): Promise<NewsletterItem> {
+    const [item] = await db
+      .insert(newsletterItems)
+      .values(data)
+      .onConflictDoNothing()
+      .returning();
+    return item;
+  }
+
+  async listNewsletterItems(filters: NewsletterItemFilters = {}): Promise<NewsletterItem[]> {
+    const conditions = [];
+
+    if (filters.subcategoryTag) {
+      conditions.push(sql`${filters.subcategoryTag} = ANY(${newsletterItems.subcategoryTags})`);
+    }
+
+    if (filters.trlRange) {
+      const [min, max] = filters.trlRange.split("-").map(Number);
+      conditions.push(gte(newsletterItems.trlLevel, min));
+      conditions.push(lte(newsletterItems.trlLevel, max));
+    }
+
+    if (filters.isFrontier !== undefined) {
+      conditions.push(eq(newsletterItems.isFrontier, filters.isFrontier));
+    }
+
+    if (filters.isSelected !== undefined) {
+      conditions.push(eq(newsletterItems.isSelected, filters.isSelected));
+    }
+
+    if (filters.digestIssueId === null) {
+      conditions.push(isNull(newsletterItems.digestIssueId));
+    } else if (filters.digestIssueId !== undefined) {
+      conditions.push(eq(newsletterItems.digestIssueId, filters.digestIssueId));
+    }
+
+    if (filters.from) {
+      conditions.push(gte(newsletterItems.createdAt, filters.from));
+    }
+
+    if (filters.to) {
+      conditions.push(lte(newsletterItems.createdAt, filters.to));
+    }
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const sortCol = filters.sort === "frontierScore"
+      ? newsletterItems.frontierScore
+      : filters.sort === "relevanceScore"
+        ? newsletterItems.relevanceScore
+        : newsletterItems.createdAt;
+
+    const sortDir = filters.order === "asc" ? asc(sortCol) : desc(sortCol);
+
+    // Always put frontier items first, then apply the requested sort
+    const query = db
+      .select()
+      .from(newsletterItems)
+      .$dynamic();
+
+    if (where) {
+      query.where(where);
+    }
+
+    return query.orderBy(desc(newsletterItems.isFrontier), sortDir);
+  }
+
+  async updateNewsletterItem(id: string, data: Partial<InsertNewsletterItem>): Promise<NewsletterItem | undefined> {
+    const [item] = await db
+      .update(newsletterItems)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(newsletterItems.id, id))
+      .returning();
+    return item;
+  }
+
+  async bulkUpdateNewsletterItems(ids: string[], data: Partial<InsertNewsletterItem>): Promise<void> {
+    if (ids.length === 0) return;
+    await db
+      .update(newsletterItems)
+      .set({ ...data, updatedAt: new Date() })
+      .where(inArray(newsletterItems.id, ids));
+  }
+
+  async getExistingNewsletterSourceUrls(): Promise<Set<string>> {
+    const results = await db
+      .select({ sourceUrl: newsletterItems.sourceUrl })
+      .from(newsletterItems);
+    return new Set(results.map((r) => r.sourceUrl));
+  }
+
+  // ── Newsletter — Digest Issues ───────────────────────────────────────────────
+
+  async createNewsletterDigestIssue(data: Partial<InsertNewsletterDigestIssue> = {}): Promise<NewsletterDigestIssue> {
+    const [issue] = await db
+      .insert(newsletterDigestIssues)
+      .values({ status: "draft", ...data })
+      .returning();
+    return issue;
+  }
+
+  async getNewsletterDigestIssue(id: string): Promise<(NewsletterDigestIssue & { items: NewsletterItem[] }) | undefined> {
+    const [issue] = await db
+      .select()
+      .from(newsletterDigestIssues)
+      .where(eq(newsletterDigestIssues.id, id));
+
+    if (!issue) return undefined;
+
+    const items = await db
+      .select()
+      .from(newsletterItems)
+      .where(eq(newsletterItems.digestIssueId, id))
+      .orderBy(asc(newsletterItems.sortOrder));
+
+    return { ...issue, items };
+  }
+
+  async listNewsletterDigestIssues(): Promise<NewsletterDigestIssue[]> {
+    return db
+      .select()
+      .from(newsletterDigestIssues)
+      .orderBy(desc(newsletterDigestIssues.issueNumber));
+  }
+
+  async updateNewsletterDigestIssue(id: string, data: Partial<InsertNewsletterDigestIssue>): Promise<NewsletterDigestIssue | undefined> {
+    const [issue] = await db
+      .update(newsletterDigestIssues)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(newsletterDigestIssues.id, id))
+      .returning();
+    return issue;
+  }
+
+  // ── Newsletter — Subscribers ─────────────────────────────────────────────────
+
+  async listActiveSubscribers(): Promise<EmailSubscriber[]> {
+    return db
+      .select()
+      .from(emailSubscribers)
+      .where(eq(emailSubscribers.isActive, true))
+      .orderBy(asc(emailSubscribers.createdAt));
+  }
+
+  async deactivateSubscriber(token: string): Promise<EmailSubscriber | undefined> {
+    const [subscriber] = await db
+      .update(emailSubscribers)
+      .set({ isActive: false, unsubscribedAt: new Date() })
+      .where(eq(emailSubscribers.unsubscribeToken, token))
+      .returning();
+    return subscriber;
+  }
+
+  async updateEmailSubscriber(id: string, data: Partial<EmailSubscriber>): Promise<EmailSubscriber | undefined> {
+    const [subscriber] = await db
+      .update(emailSubscribers)
+      .set(data)
+      .where(eq(emailSubscribers.id, id))
+      .returning();
+    return subscriber;
   }
 }
 
