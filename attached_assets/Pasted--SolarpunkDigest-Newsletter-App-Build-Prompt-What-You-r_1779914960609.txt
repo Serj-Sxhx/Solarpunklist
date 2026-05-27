@@ -1,0 +1,538 @@
+# SolarpunkDigest — Newsletter App Build Prompt
+
+## What You're Building
+
+A single-user newsletter app called **SolarpunkDigest** that automatically researches breakthroughs in the solarpunk space every day (3-5 high-quality items), presents them in an admin dashboard for curation, then generates and sends a polished email digest to subscribers.
+
+This extends an existing product (SolarpunkList, a directory of regenerative communities hosted at solarpunklist.com). The newsletter features a "Community Spotlight" at the top of each issue pulled from the SolarpunkList discovery pipeline, followed by curated news items across solarpunk categories.
+
+The key workflow: **AI researches daily → items accumulate → admin curates → AI generates digest → email sends.**
+
+There are two deliverables:
+1. **The newsletter backend** (Replit app): research engine, admin dashboard, digest generation, email sending
+2. **The signup page** (on SolarpunkList): a beautiful `/newsletter` route at solarpunklist.com with AI-generated background video, email capture, and success redirect
+
+## Stack (Replit-Native)
+
+- **Framework:** Next.js 14+ (App Router)
+- **Database:** Replit's built-in PostgreSQL (Neon-powered, access via `DATABASE_URL` env var)
+- **ORM:** Prisma (works well with Replit's Postgres + gives you migrations)
+- **Styling:** Tailwind CSS + shadcn/ui
+- **AI Research:** Exa Search API (semantic web search + content extraction)
+- **AI Generation:** Anthropic Claude API (digest copywriting)
+- **AI Images (fallback):** fal.ai (generate a hero image when no source image can be scraped)
+- **Email Sending:** Resend (transactional email with verified domain)
+- **Scheduler:** Replit's built-in cron OR a `/api/cron/trigger` endpoint secured with `CRON_SECRET`
+- **Deployment:** Replit Deployments
+
+## Environment Variables (Replit Secrets)
+
+```
+DATABASE_URL              # Auto-populated by Replit's built-in Postgres
+EXA_API_KEY               # exa.ai search
+ANTHROPIC_API_KEY         # Claude for digest generation
+FAL_KEY                   # fal.ai for fallback image generation
+RESEND_API_KEY            # Resend for email sending
+CRON_SECRET               # Secures the cron trigger endpoint
+NEXT_PUBLIC_APP_URL       # e.g. https://solarpunkdigest.yourdomain.com
+PLATFORM_FROM_EMAIL       # e.g. digest@solarpunklist.com
+CORS_ALLOWED_ORIGIN       # https://solarpunklist.com (for cross-origin subscribe)
+```
+
+**Additionally, in the SolarpunkList app (Vercel):**
+```
+NEWSLETTER_API_URL        # URL of the Replit newsletter backend, e.g. https://solarpunkdigest.yourdomain.com
+```
+
+## DNS Setup (Namecheap + Resend)
+
+The user will manually configure these in Namecheap's DNS manager:
+1. Add Resend's DKIM records (3 CNAME records)
+2. Add Resend's SPF record (TXT)
+3. Add Resend's DMARC record (TXT)
+4. Verify domain in Resend dashboard
+
+The app should include a preflight check script (`/api/admin/preflight`) that hits the Resend API to confirm domain verification status before allowing sends.
+
+---
+
+## Database Schema (Prisma)
+
+```prisma
+model ResearchRun {
+  id                String   @id @default(uuid())
+  runDate           DateTime @default(now())
+  queriesExecuted   Int
+  itemsFound        Int
+  itemsNew          Int
+  itemsDuplicate    Int
+  errors            Json?
+  createdAt         DateTime @default(now())
+}
+
+model DiscoveredItem {
+  id                String   @id @default(uuid())
+  researchRunId     String?
+  researchRun       ResearchRun? @relation(fields: [researchRunId], references: [id])
+  
+  // Content
+  title             String
+  summary           String?          // AI-generated 2-3 sentence summary
+  sourceUrl         String   @unique
+  sourceTitle       String?          // Original page title
+  sourceDomain      String?          // e.g. "treehugger.com"
+  publishedAt       DateTime?        // When the source was published
+  
+  // Categorization
+  category          String   @default("Solarpunk Tech") // All items are Solarpunk Tech
+  subcategoryTags   String[] // e.g. ["Solar Microgrids", "Battery Storage"] — from the 10 subcategories
+  tags              String[] // Additional freeform tags e.g. ["open-source", "DIY", "community-scale"]
+  relevanceScore    Float?   // 0-1, how solarpunk-relevant the AI thinks this is
+  
+  // TRL & Frontier Assessment
+  trlLevel          Int?             // 1-9, Technology Readiness Level
+  trlReasoning      String?          // AI's 1-sentence justification for the TRL rating
+  frontierScore     Float?           // 0-1, how novel/cutting-edge/paradigm-shifting
+  isFrontier        Boolean @default(false) // True for top 3-5 items per daily run (auto-starred)
+  
+  // Media
+  imageUrl          String?          // Scraped from source
+  imageAlt          String?
+  isAiGeneratedImage Boolean @default(false) // True if fal.ai generated it
+  
+  // Curation
+  isSelected        Boolean @default(false)  // Admin checked this for the digest
+  isSpotlight       Boolean @default(false)  // Featured community spotlight
+  adminNotes        String?
+  
+  // Digest relationship
+  digestIssueId     String?
+  digestIssue       DigestIssue? @relation(fields: [digestIssueId], references: [id])
+  sortOrder         Int?             // Order within the digest
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model DigestIssue {
+  id                String   @id @default(uuid())
+  issueNumber       Int      @unique @default(autoincrement())
+  
+  // Content
+  subject           String?          // Email subject line
+  introText         String?          // AI-generated intro paragraph
+  generatedHtml     String?          // Full rendered email HTML
+  generatedMarkdown String?          // Markdown version for preview
+  
+  // Spotlight
+  spotlightName     String?          // Featured community name
+  spotlightSlug     String?          // Link back to SolarpunkList detail page
+  spotlightSummary  String?          // AI-written spotlight blurb
+  spotlightImageUrl String?
+  
+  // Status
+  status            String   @default("draft") // draft | generated | approved | scheduled | sent | discarded
+  scheduledFor      DateTime?
+  sentAt            DateTime?
+  
+  // Send safety
+  sendBlockReason   String?          // e.g. "DOMAIN_UNVERIFIED", "NO_SUBSCRIBERS"
+  sendHoldUntil     DateTime?
+  sendLastAttemptAt DateTime?
+  
+  // Metrics (populated after send via Resend webhooks)
+  recipientCount    Int?
+  openCount         Int?
+  clickCount        Int?
+  
+  // Relations
+  items             DiscoveredItem[]
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Subscriber {
+  id                String   @id @default(uuid())
+  email             String   @unique
+  name              String?
+  isActive          Boolean  @default(true)
+  subscribedAt      DateTime @default(now())
+  unsubscribedAt    DateTime?
+  source            String?          // e.g. "website", "manual", "import"
+}
+
+model SendingDomain {
+  id                String   @id @default(uuid())
+  domain            String   @unique
+  resendDomainId    String?
+  isVerified        Boolean  @default(false)
+  lastCheckedAt     DateTime?
+  createdAt         DateTime @default(now())
+}
+```
+
+## Content Categories
+
+All research focuses on **Solarpunk Tech**. Every daily run searches across all 10 subcategories. Items are tagged with their matching subcategory (can have multiple) when saved to DB.
+
+| Subcategory Tag | Search Queries (examples, rotate and vary daily) |
+|-----------------|--------------------------------------------------|
+| **Solar Microgrids** | "community solar microgrid project", "off-grid solar installation", "solar microgrid open source", "village solar power system" |
+| **Wind Turbines** | "small scale wind turbine community", "open source wind energy", "vertical axis wind turbine DIY", "community wind power project" |
+| **Rainwater Harvesting** | "rainwater harvesting system design", "community water collection", "rainwater catchment off-grid", "regenerative water management" |
+| **Edge AI Compute** | "edge AI environmental monitoring", "on-device AI agriculture", "edge computing off-grid", "AI local inference sustainability" |
+| **Permaculture Design** | "permaculture design breakthrough", "food forest project", "regenerative agriculture technology", "permaculture IoT monitoring" |
+| **Battery Storage** | "community battery storage", "off-grid energy storage", "open source battery management", "iron air battery community", "second life EV battery" |
+| **LoRa / Mesh Networks** | "LoRaWAN community network", "mesh network off-grid", "decentralized internet rural", "Meshtastic community deployment" |
+| **CNC & 3D Printing** | "3D printed sustainable housing", "CNC open source fabrication", "distributed manufacturing community", "3D printed solar panel mount" |
+| **Autonomous Drones** | "drone reforestation project", "agricultural drone autonomous", "drone seed planting", "conservation drone monitoring" |
+| **IoT Sensor Arrays** | "IoT soil monitoring open source", "environmental sensor network community", "smart farm sensor array", "LoRa IoT agriculture" |
+
+The search engine should run **1 query per subcategory per day** (10 queries total), keeping ALL results above a 0.3 relevance threshold. The top 3-5 by frontier score get auto-starred.
+
+---
+
+## Technology Readiness Level (TRL) Scale
+
+Every discovered item gets a TRL rating. Claude assigns this based on the evidence in the article. The full scale:
+
+| TRL | Name | What It Means | Example |
+|-----|------|---------------|---------|
+| 1 | Basic Principles Observed | Paper studies, theoretical research | "Researchers publish paper on mycelium-based circuit boards" |
+| 2 | Technology Concept Formulated | Practical application hypothesized, analytical studies | "Team proposes using atmospheric water generators powered by solar for desert communities" |
+| 3 | Experimental Proof of Concept | Lab validation of individual elements | "Lab demo shows LoRa mesh can relay soil data over 15km in hilly terrain" |
+| 4 | Lab Validation | Components integrated, low-fidelity prototype in lab | "Breadboard prototype of edge AI chip runs plant disease detection at 0.5W" |
+| 5 | Relevant Environment Validation | Tested in simulated or partially real conditions | "Solar microgrid controller tested in simulated village load conditions" |
+| 6 | Prototype Demo | High-fidelity prototype in relevant environment | "3D-printed earthen wall module withstands 6 months of weather testing" |
+| 7 | Operational Prototype | Near-final system in real environment | "Autonomous drone reforestation system plants 10,000 seeds across 50 hectares in field trial" |
+| 8 | System Qualified | Proven to work in final form | "Iron-air battery system passes utility-grade certification for community storage" |
+| 9 | Proven Deployment | Fully operational in real mission/commercial use | "Community solar microgrid powers 200 homes in rural Kenya for 2+ years" |
+
+**Frontier scoring guidance for Claude:**
+- High frontier (0.8-1.0): First-of-its-kind at any TRL. A TRL 1-3 paper on something nobody's tried before. A TRL 7 deployment that breaks a long-standing barrier. Unexpected crossovers between fields.
+- Medium frontier (0.4-0.7): Meaningful advancement within a known field. New open-source implementation of existing tech. Notable scale-up or cost reduction.
+- Low frontier (0.0-0.3): Incremental improvement. Another solar farm goes online. Known tech deployed in a new location. Still worth cataloguing, not worth starring.
+
+---
+
+## Core Flow
+
+### 1. Daily Research Cron (`/api/cron/research`)
+
+Triggered daily (e.g. every day at 6am UTC). Secured with `CRON_SECRET` header.
+
+```
+POST /api/cron/research
+Authorization: Bearer $CRON_SECRET
+```
+
+**What it does:**
+1. Execute 10 Exa searches — one query per subcategory (Solar Microgrids, Wind Turbines, Rainwater Harvesting, Edge AI Compute, Permaculture Design, Battery Storage, LoRa/Mesh Networks, CNC & 3D Printing, Autonomous Drones, IoT Sensor Arrays). Vary the exact query wording each day from the pool.
+2. Use Exa's `/contents` endpoint to pull full text + images from each result
+3. Deduplicate against existing `DiscoveredItem.sourceUrl` entries
+4. For each new unique item, call Claude to:
+   - Generate a 2-3 sentence summary
+   - Assign one or more subcategory tags from the 10 subcategories
+   - Generate additional freeform tags
+   - Rate relevance (0-1 score)
+   - **Assign a TRL level (1-9)** based on the technology's maturity described in the article (see TRL scale below)
+   - **Assess a "frontier score" (0-1)** — how novel, cutting-edge, or paradigm-shifting is this? A TRL 1-3 breakthrough in a new field scores higher than a TRL 9 incremental improvement. But a first-ever TRL 7 deployment of something that's been stuck at TRL 4 for years also scores high.
+5. **Keep ALL items that pass a minimum relevance threshold (>0.3).** Don't discard. The admin curates.
+6. **Star the top 3-5 items by frontier score** — these get `isFrontier = true` and sort to the top of the admin dashboard with a ⚡ badge. These are the "you need to see this" items.
+7. If a source has no usable image, call fal.ai to generate one based on the title + summary
+8. Save all items to DB with their subcategory tags, TRL level, and frontier score
+9. Once per week (Monday run), also pull the week's top community from SolarpunkList (highest Solarpunk Score among entries added in the past 7 days) and create a spotlight item
+10. Log the run to `ResearchRun`
+
+Over a week this accumulates a rich pool of items across all maturity levels for the admin to curate from, with the most frontier discoveries already starred.
+
+### 2. Admin Dashboard (`/admin`)
+
+Single-page admin UI. No auth needed for V1 (single user, accessed directly). If you want basic protection, use a simple `ADMIN_PASSWORD` env var checked against a cookie.
+
+**Layout:**
+
+```
+┌─────────────────────────────────────────────────┐
+│  SolarpunkDigest Admin                          │
+│  ─────────────────────────────────────────────  │
+│  [Run Research Now]  [Create New Issue]          │
+│                                                 │
+│  ┌─ Uncurated Items (43) ─────────────────────┐ │
+│  │                                             │ │
+│  │  Filter: [All Subcategories ▼] [TRL ▼] [This Week ▼]│ │
+│  │  Sort: [Frontier Score ▼]                       │ │
+│  │                                             │ │
+│  │  ┌──────────────────────────────────────┐   │ │
+│  │  │ ☐ ⚡ [IMG]  Title of the article     │   │ │
+│  │  │     treehugger.com · 2 days ago      │   │ │
+│  │  │     [Solar Microgrids] [Battery]     │   │ │
+│  │  │     TRL 3 · Frontier: 0.91           │   │ │
+│  │  │     Relevance: 0.92                  │   │ │
+│  │  │     "AI summary of the article..."   │   │ │
+│  │  │     [View Source] [☆ Spotlight]       │   │ │
+│  │  └──────────────────────────────────────┘   │ │
+│  │                                             │ │
+│  │  ┌──────────────────────────────────────┐   │ │
+│  │  │ ☑  [IMG]  Another article title      │   │ │
+│  │  │     ...                              │   │ │
+│  │  └──────────────────────────────────────┘   │ │
+│  │                                             │ │
+│  └─────────────────────────────────────────────┘ │
+│                                                 │
+│  Selected: 8 items                              │
+│  [Generate Digest →]                            │
+│                                                 │
+│  ┌─ Past Issues ──────────────────────────────┐ │
+│  │  #12 · "Solarpunk Spring" · Sent May 19    │ │
+│  │  #11 · "The Microgrid Issue" · Sent May 12 │ │
+│  └─────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────┘
+```
+
+**Each item card shows:**
+- Checkbox (for selection)
+- ⚡ Frontier badge (if `isFrontier = true` — gold/electric accent, sorted to top by default)
+- Hero image (scraped or AI-generated, with a small badge if AI-generated)
+- Title (linked to source URL)
+- Source domain + publish date
+- Subcategory tag pills (e.g. "Solar Microgrids" "IoT Sensor Arrays" — colored, from the 10 subcategories)
+- **TRL badge** — small pill showing "TRL 3" with color gradient (TRL 1-3 blue/research, TRL 4-6 amber/prototype, TRL 7-9 green/deployed)
+- TRL reasoning tooltip (hover to see the AI's one-sentence justification)
+- Frontier score bar (thin visual indicator, 0-1)
+- Relevance score (color coded: green >0.8, amber 0.5-0.8, red <0.5)
+- AI summary (2-3 sentences)
+- "View Source" link (opens in new tab)
+- "Spotlight" star toggle (only one item can be spotlight per issue)
+- Admin notes field (expandable, for personal context)
+
+**Actions:**
+- Checkbox to select/deselect items for the digest
+- Bulk select by subcategory tag
+- "Generate Digest" button (only enabled when 1+ items selected)
+- "Run Research Now" button (triggers `/api/cron/research` manually)
+- Filter by subcategory tag, TRL range (1-3 / 4-6 / 7-9), frontier only, date range, selected/unselected
+- Sort by frontier score, relevance score, TRL level, date, subcategory
+
+### 3. Digest Generation (`/api/admin/generate`)
+
+When admin clicks "Generate Digest":
+
+1. Gather all selected items (where `isSelected = true` and `digestIssueId` is null)
+2. Create a new `DigestIssue` record
+3. Send all selected items to Claude with this instruction structure:
+
+```
+You are writing the SolarpunkDigest, a weekly email newsletter about 
+breakthroughs in solarpunk technology: solar microgrids, wind turbines, 
+rainwater harvesting, edge AI, permaculture, battery storage, mesh networks, 
+3D printing, autonomous drones, and IoT sensor arrays.
+
+Write in a warm, optimistic but grounded tone. Not corporate. 
+Not breathless hype. Like a smart friend sharing what they found this week.
+
+Generate:
+1. An email subject line (compelling, specific, not clickbait)
+2. A short intro paragraph (3-4 sentences setting up this week's theme)
+3. For each item, a newsletter-style blurb:
+   - A compelling headline (can differ from source title)
+   - The TRL level as a badge (e.g. "TRL 3 — Proof of Concept")
+   - If the item is frontier-starred, lead with a ⚡ and frame it as a breakthrough
+   - 2-3 sentences of editorial summary (not just the AI summary, add context and why it matters for the solarpunk movement)
+   - The subcategory tags as pills
+   - The source attribution and link
+4. A spotlight section for the featured community (if one is flagged):
+   - Community name + location
+   - 3-4 sentence writeup of why this community is worth knowing about
+   - Link to their SolarpunkList page
+
+Group items by their primary subcategory tag. Use section headers.
+Lead each section with frontier items if present.
+Return as structured JSON so we can render the email template.
+```
+
+4. Render the JSON into an HTML email template (responsive, clean, solarpunk-styled)
+5. Save `generatedHtml` and `generatedMarkdown` to the issue
+6. Show a preview in the admin dashboard
+
+### 4. Review, Edit & Schedule
+
+After generation, the admin can:
+- Preview the rendered email in-browser
+- Edit the subject line and intro text inline
+- Reorder items via drag-and-drop
+- Remove items from the issue
+- Regenerate (re-call Claude with updated selection)
+- Approve and schedule: pick a send date/time, or send immediately
+- Issue status moves: `draft → generated → approved → scheduled → sent`
+
+### 5. Send (`/api/cron/trigger`)
+
+Cron endpoint that fires on schedule (or manually):
+
+```
+POST /api/cron/trigger
+Authorization: Bearer $CRON_SECRET
+```
+
+**Send flow:**
+1. Check for due issues (`status = 'scheduled'` AND `scheduledFor <= now`)
+2. Verify sending domain (hit Resend API, check `SendingDomain.isVerified`)
+3. If domain unverified: hold the issue for 24h (`sendBlockReason = 'DOMAIN_UNVERIFIED'`, set `sendHoldUntil`)
+4. If hold expires without resolution: discard (`status = 'discarded'`, `sendBlockReason = 'DOMAIN_UNVERIFIED_GRACE_EXPIRED'`)
+5. If verified: fetch all active subscribers, send via Resend batch API
+6. Update issue: `status = 'sent'`, `sentAt = now()`, `recipientCount = count`
+7. If no subscribers: block with `sendBlockReason = 'NO_SUBSCRIBERS'`
+
+### 6. Subscriber Management
+
+Simple for V1:
+- Public signup lives at `solarpunklist.com/newsletter` (see Phase 5 build), which POSTs cross-origin to this backend's `/api/subscribe`
+- `/api/subscribe` accepts `{ email, name?, source? }` with CORS headers allowing `solarpunklist.com`
+- Double opt-in via Resend (send confirmation email with magic link)
+- Unsubscribe link in every email footer (one-click, sets `isActive = false`)
+- Admin can view/export/import subscribers from the dashboard
+- No segments or groups in V1
+
+---
+
+## Email Template Design
+
+The digest email should be:
+- Responsive (mobile-first, single column)
+- Clean and readable (system fonts, generous whitespace)
+- Solarpunk-themed (muted greens, warm earth tones, not neon)
+- Structured with clear section headers for each category
+- Each item has: headline, image (if available), blurb, source link
+- Community Spotlight at the top with a larger image and more prominent treatment
+- Footer: unsubscribe link, "Powered by SolarpunkList", website link
+
+---
+
+## API Routes Summary
+
+| Route | Method | Auth | Purpose |
+|-------|--------|------|---------|
+| `/api/cron/research` | POST | CRON_SECRET | Daily AI research run (3-5 items) |
+| `/api/cron/trigger` | POST | CRON_SECRET | Send due scheduled issues |
+| `/api/admin/generate` | POST | Admin | Generate digest from selected items |
+| `/api/admin/preflight` | GET | Admin | Check Resend domain verification |
+| `/api/admin/items` | GET | Admin | List discovered items (with filters) |
+| `/api/admin/items/[id]` | PATCH | Admin | Update item (select, notes, spotlight) |
+| `/api/admin/items/bulk` | PATCH | Admin | Bulk select/deselect items |
+| `/api/admin/issues` | GET | Admin | List digest issues |
+| `/api/admin/issues/[id]` | GET/PATCH | Admin | Get/update a digest issue |
+| `/api/admin/issues/[id]/send` | POST | Admin | Send immediately |
+| `/api/admin/issues/[id]/schedule` | POST | Admin | Schedule for future send |
+| `/api/admin/subscribers` | GET/POST | Admin | List/add subscribers |
+| `/api/admin/research` | POST | Admin | Trigger manual research run |
+| `/api/subscribe` | POST | Public | New subscriber signup |
+| `/api/unsubscribe` | GET | Public | One-click unsubscribe (token-based) |
+
+---
+
+## Build Order
+
+### Phase 1: Database + Admin Shell
+1. Init Next.js project with Tailwind + shadcn/ui
+2. Set up Prisma with Replit's built-in Postgres (`DATABASE_URL`)
+3. Run `prisma migrate` with the schema above
+4. Build the admin dashboard layout at `/admin` (empty state)
+5. Build the item card component with checkbox, image, summary, category pill
+6. Build the past issues sidebar
+
+### Phase 2: Research Engine
+1. Wire up Exa Search API integration
+2. Build the research pipeline (search → dedupe → Claude summarize → fal.ai fallback image → save)
+3. Create `/api/cron/research` endpoint
+4. Create `/api/admin/research` for manual trigger
+5. Test: run research, see items appear in admin dashboard
+6. Add filters (category, date, relevance) and sort to the admin UI
+
+### Phase 3: Digest Generation
+1. Build the Claude prompt for digest generation
+2. Create `/api/admin/generate` endpoint
+3. Build the HTML email template (responsive, solarpunk-styled)
+4. Build the preview pane in admin dashboard
+5. Add inline editing for subject line and intro
+6. Add drag-and-drop reordering of items within a draft
+
+### Phase 4: Email Sending
+1. Set up Resend integration
+2. Build `/api/admin/preflight` domain verification check
+3. Build subscriber model: `/api/subscribe`, `/api/unsubscribe`
+4. Build the subscriber management section in admin
+5. Build `/api/cron/trigger` with full send safety (domain check, hold logic, grace period)
+6. Build the public subscribe page at `/subscribe`
+7. Add unsubscribe token to email footer
+
+### Phase 5: Newsletter Signup Page (on SolarpunkList codebase)
+
+This lives in the SolarpunkList Next.js app (not the Replit newsletter backend). It's the public-facing signup experience at `solarpunklist.com/newsletter`.
+
+**Route:** `/newsletter`
+
+**Design:**
+- Full-viewport landing page with an AI-generated background video
+- The video should be a slow, ambient loop of solarpunk imagery: lush green landscapes, solar panels catching light, community gardens, futuristic-but-organic architecture. Generate this using a video AI tool (Runway, Pika, or similar) from a prompt like: "Aerial slow flyover of a solarpunk ecovillage at golden hour, solar panels on earthen rooftops, food forests, gentle wind turbines, warm cinematic lighting, slow ambient movement, seamless loop"
+- The video plays muted, autoplaying, looping, with a dark overlay (50-60% opacity) so text is readable
+- Centered content card (frosted glass / semi-transparent backdrop-blur):
+  - SolarpunkDigest logo or wordmark
+  - Headline: "The Solarpunk Briefing" (or similar)
+  - Subhead: 1-2 sentences explaining what the newsletter is. Something like "A weekly digest of breakthroughs in regenerative communities, green tech, and the solarpunk movement. Curated by AI. Edited by humans."
+  - Email input field (clean, large, prominent)
+  - "Subscribe" button (solarpunk green, prominent)
+  - Small privacy note: "No spam. Unsubscribe anytime."
+- Mobile responsive: video scales, card stacks vertically, input stays usable
+
+**On submit:**
+- POST to the Replit newsletter backend's `/api/subscribe` endpoint (cross-origin, so configure CORS on the Replit app)
+- The subscribe endpoint creates the subscriber record and triggers a double opt-in confirmation email via Resend
+- On success: redirect to `/newsletter/success`
+
+**Success page (`/newsletter/success`):**
+- Same background video, same overlay
+- Centered card with:
+  - Checkmark icon (animated, subtle)
+  - "You're in!" headline
+  - "Check your email to confirm your subscription."
+  - After 5 seconds, auto-redirect to `solarpunklist.com` (the main directory homepage)
+  - Also show a "Back to SolarpunkList →" link for immediate click
+
+**Technical notes:**
+- The background video should be a short MP4 (10-15 seconds, seamless loop, compressed to <5MB for fast load)
+- Use `<video autoPlay muted loop playsInline>` with a poster image fallback for slow connections
+- The poster image is a still frame from the video (so the page looks good even before video loads)
+- Add `NEWSLETTER_API_URL` env var to the SolarpunkList app pointing to the Replit newsletter backend
+
+### Phase 6: Polish & Deploy
+1. Wire up the daily cron job (research) and send trigger cron
+2. Add issue metrics tracking (open/click via Resend webhooks)
+3. Test full E2E: research → curate → generate → preview → schedule → send
+4. Deploy newsletter backend via Replit Deployments
+5. Deploy signup page update to SolarpunkList on Vercel
+6. Configure DNS in Namecheap (Resend DKIM, SPF, DMARC records)
+7. Run preflight check, send test issue
+8. Configure CORS on Replit backend to allow requests from solarpunklist.com
+
+---
+
+## What "Done" Looks Like
+
+- [ ] Daily research cron searches all 10 subcategories and keeps all items above relevance threshold
+- [ ] Every item is tagged with TRL level (1-9) and frontier score (0-1)
+- [ ] Top 3-5 frontier items per day are auto-starred with ⚡ badge
+- [ ] Admin dashboard shows all items with TRL badges, frontier stars, subcategory tags
+- [ ] Admin can filter by subcategory, TRL range, frontier-only, date range
+- [ ] Admin can check items, click "Generate Digest", and get a preview
+- [ ] Generated digest shows TRL badges and leads with ⚡ frontier items per section
+- [ ] Community spotlight featured at top of each issue
+- [ ] Admin can edit, reorder, approve, and schedule the digest
+- [ ] Email sends on schedule via Resend to all active subscribers
+- [ ] Unverified domain blocks sends with clear error messaging
+- [ ] Newsletter signup page lives at solarpunklist.com/newsletter with AI-generated background video
+- [ ] Signup form posts cross-origin to Replit backend, triggers double opt-in
+- [ ] Success page shows confirmation, auto-redirects to SolarpunkList homepage after 5 seconds
+- [ ] Every email has a working one-click unsubscribe
+- [ ] Mobile responsive: admin dashboard, email template, and signup page
