@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -24,37 +24,57 @@ import {
   Eye,
   Edit2,
   Users,
+  CheckCircle,
+  SortAsc,
+  Filter,
+  Image as ImageIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { NewsletterItem, NewsletterDigestIssue } from "@shared/schema";
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
 const TRL_COLORS: Record<string, string> = {
-  "1": "bg-blue-100 text-blue-700",
-  "2": "bg-blue-100 text-blue-700",
-  "3": "bg-blue-100 text-blue-700",
-  "4": "bg-amber-100 text-amber-700",
-  "5": "bg-amber-100 text-amber-700",
-  "6": "bg-amber-100 text-amber-700",
-  "7": "bg-emerald-100 text-emerald-700",
-  "8": "bg-emerald-100 text-emerald-700",
-  "9": "bg-emerald-100 text-emerald-700",
+  "1": "bg-blue-100 text-blue-800",
+  "2": "bg-blue-100 text-blue-800",
+  "3": "bg-blue-100 text-blue-800",
+  "4": "bg-amber-100 text-amber-800",
+  "5": "bg-amber-100 text-amber-800",
+  "6": "bg-amber-100 text-amber-800",
+  "7": "bg-emerald-100 text-emerald-800",
+  "8": "bg-emerald-100 text-emerald-800",
+  "9": "bg-emerald-100 text-emerald-800",
 };
 
 function trlLabel(level: number | null) {
   if (!level) return "TRL ?";
-  const desc: Record<number, string> = {
-    1: "Basic Research",
+  const names: Record<number, string> = {
+    1: "Basic",
     2: "Concept",
-    3: "Proof of Concept",
-    4: "Lab Validation",
-    5: "Env. Validation",
-    6: "Prototype Demo",
-    7: "Operational Prototype",
-    8: "System Qualified",
-    9: "Proven Deployment",
+    3: "PoC",
+    4: "Lab",
+    5: "Env.",
+    6: "Prototype",
+    7: "Operational",
+    8: "Qualified",
+    9: "Deployed",
   };
-  return `TRL ${level} — ${desc[level] || ""}`;
+  return `TRL ${level} · ${names[level] ?? ""}`;
 }
+
+function ScoreBar({ value, color }: { value: number | null; color: string }) {
+  const pct = Math.round((value ?? 0) * 100);
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden" style={{ minWidth: 48 }}>
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-[10px] font-mono text-muted-foreground w-7 text-right">{pct}</span>
+    </div>
+  );
+}
+
+// ── Item Card ─────────────────────────────────────────────────────────────────
 
 function ItemCard({
   item,
@@ -66,95 +86,138 @@ function ItemCard({
   onToggleFrontier: (id: string, current: boolean | null) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   return (
     <div
-      className={`border rounded-xl p-4 transition-all ${item.isSelected === true ? "border-primary/60 bg-primary/5" : "border-border/60 bg-card"}`}
+      className={`border rounded-xl overflow-hidden transition-all ${item.isSelected === true ? "border-primary/60 bg-primary/5" : "border-border/60 bg-card"}`}
       data-testid={`card-newsletter-item-${item.id}`}
     >
-      <div className="flex items-start gap-3">
-        <button
-          onClick={() => onToggleSelect(item.id, item.isSelected)}
-          className="mt-0.5 shrink-0 text-muted-foreground hover:text-primary transition-colors"
-          data-testid={`button-select-item-${item.id}`}
-          title={item.isSelected ? "Deselect" : "Select for digest"}
-        >
-          {item.isSelected === true ? (
-            <CheckSquare className="w-5 h-5 text-primary" />
-          ) : (
-            <Square className="w-5 h-5" />
-          )}
-        </button>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start gap-2 mb-1">
-            {item.isFrontier === true && (
-              <span className="inline-flex items-center gap-1 shrink-0 bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">
-                <Zap className="w-3 h-3" /> Frontier
-              </span>
-            )}
-            <a
-              href={item.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm font-semibold text-foreground hover:text-primary leading-snug line-clamp-2"
-            >
-              {item.title}
-            </a>
-            <ExternalLink className="w-3.5 h-3.5 shrink-0 mt-0.5 text-muted-foreground" />
+      <div className="flex gap-0">
+        {/* Thumbnail */}
+        {item.imageUrl && !imgError ? (
+          <div className="w-20 shrink-0 bg-muted overflow-hidden">
+            <img
+              src={item.imageUrl}
+              alt=""
+              className="w-full h-full object-cover"
+              style={{ minHeight: 80, maxHeight: 120 }}
+              onError={() => setImgError(true)}
+            />
           </div>
-
-          <div className="flex flex-wrap items-center gap-1.5 mb-2">
-            <span
-              className={`text-xs font-semibold px-2 py-0.5 rounded-full ${TRL_COLORS[String(item.trlLevel)] ?? "bg-gray-100 text-gray-600"}`}
-            >
-              {trlLabel(item.trlLevel)}
-            </span>
-            {item.subcategoryTags?.slice(0, 2).map((tag) => (
-              <Badge key={tag} variant="secondary" className="text-xs">
-                {tag}
-              </Badge>
-            ))}
-            {item.sourceDomain && (
-              <span className="text-xs text-muted-foreground">{item.sourceDomain}</span>
-            )}
-            <span className="text-xs text-muted-foreground ml-auto">
-              Score: {((item.frontierScore ?? 0) * 100).toFixed(0)}
-            </span>
+        ) : (
+          <div className="w-8 shrink-0 bg-muted/30 flex items-start justify-center pt-3">
+            <ImageIcon className="w-3.5 h-3.5 text-muted-foreground/40" />
           </div>
+        )}
 
-          {item.summary && (
-            <p className={`text-xs text-muted-foreground leading-relaxed ${expanded ? "" : "line-clamp-2"}`}>
-              {item.summary}
-            </p>
-          )}
-          {expanded && item.trlReasoning && (
-            <p className="text-xs text-muted-foreground mt-1 italic">
-              TRL Reasoning: {item.trlReasoning}
-            </p>
-          )}
-        </div>
+        <div className="flex-1 min-w-0 p-3">
+          <div className="flex items-start gap-2">
+            {/* Select checkbox */}
+            <button
+              onClick={() => onToggleSelect(item.id, item.isSelected)}
+              className="mt-0.5 shrink-0 text-muted-foreground hover:text-primary transition-colors"
+              data-testid={`button-select-item-${item.id}`}
+              title={item.isSelected ? "Deselect" : "Select for digest"}
+            >
+              {item.isSelected === true ? (
+                <CheckSquare className="w-4.5 h-4.5 text-primary" />
+              ) : (
+                <Square className="w-4.5 h-4.5" />
+              )}
+            </button>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => onToggleFrontier(item.id, item.isFrontier)}
-            className="text-muted-foreground hover:text-amber-500 transition-colors"
-            data-testid={`button-frontier-item-${item.id}`}
-            title={item.isFrontier ? "Remove frontier star" : "Mark as frontier"}
-          >
-            {item.isFrontier === true ? (
-              <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
-            ) : (
-              <StarOff className="w-4 h-4" />
-            )}
-          </button>
-          <button
-            onClick={() => setExpanded((e) => !e)}
-            className="text-muted-foreground hover:text-foreground transition-colors ml-1"
-            data-testid={`button-expand-item-${item.id}`}
-          >
-            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
+            <div className="flex-1 min-w-0">
+              {/* Frontier badge + title */}
+              <div className="flex items-start gap-1.5 mb-1">
+                {item.isFrontier === true && (
+                  <span className="inline-flex items-center gap-0.5 shrink-0 bg-amber-100 text-amber-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    <Zap className="w-2.5 h-2.5" /> Frontier
+                  </span>
+                )}
+                <a
+                  href={item.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-semibold text-foreground hover:text-primary leading-snug"
+                >
+                  {item.title}
+                </a>
+                <ExternalLink className="w-3 h-3 shrink-0 mt-0.5 text-muted-foreground" />
+              </div>
+
+              {/* Meta row */}
+              <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                {item.trlLevel != null && (
+                  <span
+                    className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${TRL_COLORS[String(item.trlLevel)] ?? "bg-gray-100 text-gray-600"}`}
+                  >
+                    {trlLabel(item.trlLevel)}
+                  </span>
+                )}
+                {item.subcategoryTags?.slice(0, 2).map((tag) => (
+                  <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                    {tag}
+                  </Badge>
+                ))}
+                {item.sourceDomain && (
+                  <span className="text-[10px] text-muted-foreground">{item.sourceDomain}</span>
+                )}
+                {item.publishedAt && (
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(item.publishedAt).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+
+              {/* Score bars */}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 mb-2">
+                <div>
+                  <div className="text-[9px] font-semibold text-muted-foreground mb-0.5 uppercase tracking-wide">Relevance</div>
+                  <ScoreBar value={item.relevanceScore} color="bg-blue-400" />
+                </div>
+                <div>
+                  <div className="text-[9px] font-semibold text-muted-foreground mb-0.5 uppercase tracking-wide">Frontier</div>
+                  <ScoreBar value={item.frontierScore} color="bg-amber-400" />
+                </div>
+              </div>
+
+              {/* Summary */}
+              {item.summary && (
+                <p className={`text-xs text-muted-foreground leading-relaxed ${expanded ? "" : "line-clamp-2"}`}>
+                  {item.summary}
+                </p>
+              )}
+              {expanded && item.trlReasoning && (
+                <p className="text-xs text-muted-foreground mt-1 italic">
+                  TRL Reasoning: {item.trlReasoning}
+                </p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => onToggleFrontier(item.id, item.isFrontier)}
+                className="text-muted-foreground hover:text-amber-500 transition-colors"
+                data-testid={`button-frontier-item-${item.id}`}
+                title={item.isFrontier ? "Remove frontier star" : "Mark as frontier"}
+              >
+                {item.isFrontier === true ? (
+                  <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+                ) : (
+                  <StarOff className="w-4 h-4" />
+                )}
+              </button>
+              <button
+                onClick={() => setExpanded((e) => !e)}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                data-testid={`button-expand-item-${item.id}`}
+              >
+                {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -168,7 +231,7 @@ function DigestDetailView({
   cronSecret,
   onBack,
 }: {
-  issue: NewsletterDigestIssue & { items?: NewsletterItem[] };
+  issue: NewsletterDigestIssue;
   cronSecret: string;
   onBack: () => void;
 }) {
@@ -177,7 +240,7 @@ function DigestDetailView({
   const [editingIntro, setEditingIntro] = useState(false);
   const [subjectDraft, setSubjectDraft] = useState(issue.subject ?? "");
   const [introDraft, setIntroDraft] = useState(issue.introText ?? "");
-  const [activeTab, setActiveTab] = useState<"preview" | "edit">("preview");
+  const [activeTab, setActiveTab] = useState<"preview" | "markdown">("preview");
 
   const issueQuery = useQuery<NewsletterDigestIssue & { items: NewsletterItem[] }>({
     queryKey: ["/api/newsletter/issues", issue.id],
@@ -215,8 +278,23 @@ function DigestDetailView({
     onError: (e: Error) => toast({ title: "Generation failed", description: e.message, variant: "destructive" }),
   });
 
+  const approveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/newsletter/issues/${issue.id}`, { status: "approved" });
+      if (!res.ok) { const b = await res.json(); throw new Error(b.error || "Failed"); }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/newsletter/issues", issue.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/newsletter/issues"] });
+      toast({ title: "Issue approved — ready to send" });
+    },
+    onError: (e: Error) => toast({ title: "Approve failed", description: e.message, variant: "destructive" }),
+  });
+
   const sendMutation = useMutation({
     mutationFn: async () => {
+      if (!cronSecret) throw new Error("CRON_SECRET is required to send");
       const res = await fetch(`/api/newsletter/issues/${issue.id}/send`, {
         method: "POST",
         headers: {
@@ -243,23 +321,25 @@ function DigestDetailView({
     discarded: "bg-red-100 text-red-600",
   };
 
+  const canGenerate = current.status !== "sent" && current.status !== "discarded";
+  const canApprove = current.status === "generated";
+  const canSend = current.status === "approved" || current.status === "generated";
+
   return (
     <div>
-      {/* Back + header */}
-      <div className="flex items-center gap-3 mb-6">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
         <Button variant="ghost" size="sm" onClick={onBack} className="gap-1" data-testid="button-back-issues">
-          <ArrowLeft className="w-4 h-4" /> Issues
+          <ArrowLeft className="w-4 h-4" /> All Issues
         </Button>
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-foreground">
-            Issue #{current.issueNumber ?? "—"}
-          </span>
+          <span className="font-semibold text-foreground">Issue #{current.issueNumber ?? "—"}</span>
           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColors[current.status ?? ""] || ""}`}>
             {current.status}
           </span>
         </div>
-        <div className="ml-auto flex gap-2">
-          {current.status !== "sent" && (
+        <div className="ml-auto flex gap-2 flex-wrap">
+          {canGenerate && (
             <Button
               variant="outline"
               size="sm"
@@ -268,40 +348,71 @@ function DigestDetailView({
               data-testid="button-generate-digest"
             >
               {generateMutation.isPending ? (
-                <><Loader2 className="w-4 h-4 animate-spin mr-1" />Generating...</>
+                <><Loader2 className="w-4 h-4 animate-spin mr-1" />Generating…</>
               ) : (
-                <><FileText className="w-4 h-4 mr-1" />Generate</>
+                <><FileText className="w-4 h-4 mr-1" />{current.generatedHtml ? "Regenerate" : "Generate"}</>
               )}
             </Button>
           )}
-          {current.status === "generated" || current.status === "approved" ? (
+          {canApprove && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => approveMutation.mutate()}
+              disabled={approveMutation.isPending}
+              className="border-purple-300 text-purple-700 hover:bg-purple-50"
+              data-testid="button-approve-digest"
+            >
+              {approveMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin mr-1" />Approving…</>
+              ) : (
+                <><CheckCircle className="w-4 h-4 mr-1" />Approve</>
+              )}
+            </Button>
+          )}
+          {canSend && (
             <Button
               size="sm"
-              onClick={() => {
-                if (!cronSecret) {
-                  toast({ title: "CRON_SECRET required", description: "Enter your CRON_SECRET to authorize sending.", variant: "destructive" });
-                  return;
-                }
-                sendMutation.mutate();
-              }}
-              disabled={sendMutation.isPending}
+              onClick={() => sendMutation.mutate()}
+              disabled={sendMutation.isPending || !cronSecret}
+              title={!cronSecret ? "Enter CRON_SECRET on the main screen to enable sending" : undefined}
               data-testid="button-send-digest"
             >
               {sendMutation.isPending ? (
-                <><Loader2 className="w-4 h-4 animate-spin mr-1" />Sending...</>
+                <><Loader2 className="w-4 h-4 animate-spin mr-1" />Sending…</>
               ) : (
-                <><Send className="w-4 h-4 mr-1" />Send Now</>
+                <><Send className="w-4 h-4 mr-1" />Send</>
               )}
             </Button>
-          ) : null}
+          )}
         </div>
       </div>
 
-      {/* Subject line editor */}
+      {/* Status pipeline */}
+      <div className="flex items-center gap-1 mb-5 text-xs text-muted-foreground flex-wrap">
+        {["draft", "generated", "approved", "sent"].map((s, i, arr) => (
+          <>
+            <span
+              key={s}
+              className={`px-2 py-0.5 rounded-full font-semibold ${current.status === s ? statusColors[s] : "bg-muted text-muted-foreground/60"}`}
+            >
+              {s}
+            </span>
+            {i < arr.length - 1 && <span key={`arrow-${i}`} className="text-muted-foreground/40">→</span>}
+          </>
+        ))}
+        {current.sentAt && (
+          <span className="ml-auto">
+            Sent {new Date(current.sentAt).toLocaleString()} · {current.recipientCount ?? 0} recipients
+          </span>
+        )}
+      </div>
+
+      {/* Subject editor */}
       <Card className="p-4 mb-4">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Subject Line</span>
-          {!editingSubject && (
+          {!editingSubject && current.status !== "sent" && (
             <Button variant="ghost" size="sm" onClick={() => { setEditingSubject(true); setSubjectDraft(current.subject ?? ""); }} data-testid="button-edit-subject">
               <Edit2 className="w-3.5 h-3.5 mr-1" /> Edit
             </Button>
@@ -312,28 +423,26 @@ function DigestDetailView({
             <Input
               value={subjectDraft}
               onChange={(e) => setSubjectDraft(e.target.value)}
-              placeholder="Email subject line..."
+              placeholder="Email subject line…"
               data-testid="input-subject"
             />
             <div className="flex gap-2">
-              <Button size="sm" onClick={() => patchIssueMutation.mutate({ subject: subjectDraft })} disabled={patchIssueMutation.isPending} data-testid="button-save-subject">
-                Save
-              </Button>
+              <Button size="sm" onClick={() => patchIssueMutation.mutate({ subject: subjectDraft })} disabled={patchIssueMutation.isPending} data-testid="button-save-subject">Save</Button>
               <Button size="sm" variant="ghost" onClick={() => setEditingSubject(false)}>Cancel</Button>
             </div>
           </div>
         ) : (
           <p className="text-sm text-foreground">
-            {current.subject || <span className="text-muted-foreground italic">No subject yet — generate digest to populate</span>}
+            {current.subject || <span className="italic text-muted-foreground">No subject yet — generate the digest to auto-populate</span>}
           </p>
         )}
       </Card>
 
-      {/* Intro text editor */}
+      {/* Intro editor */}
       <Card className="p-4 mb-4">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Intro Text</span>
-          {!editingIntro && (
+          {!editingIntro && current.status !== "sent" && (
             <Button variant="ghost" size="sm" onClick={() => { setEditingIntro(true); setIntroDraft(current.introText ?? ""); }} data-testid="button-edit-intro">
               <Edit2 className="w-3.5 h-3.5 mr-1" /> Edit
             </Button>
@@ -344,14 +453,12 @@ function DigestDetailView({
             <Textarea
               value={introDraft}
               onChange={(e) => setIntroDraft(e.target.value)}
-              placeholder="Intro paragraph for this issue..."
+              placeholder="Opening paragraph for this issue…"
               rows={4}
               data-testid="input-intro"
             />
             <div className="flex gap-2">
-              <Button size="sm" onClick={() => patchIssueMutation.mutate({ introText: introDraft })} disabled={patchIssueMutation.isPending} data-testid="button-save-intro">
-                Save
-              </Button>
+              <Button size="sm" onClick={() => patchIssueMutation.mutate({ introText: introDraft })} disabled={patchIssueMutation.isPending} data-testid="button-save-intro">Save</Button>
               <Button size="sm" variant="ghost" onClick={() => setEditingIntro(false)}>Cancel</Button>
             </div>
           </div>
@@ -363,7 +470,7 @@ function DigestDetailView({
       </Card>
 
       {/* HTML preview / Markdown tabs */}
-      {current.generatedHtml && (
+      {current.generatedHtml ? (
         <Card className="overflow-hidden">
           <div className="flex items-center gap-0 border-b border-border px-4">
             <button
@@ -374,9 +481,9 @@ function DigestDetailView({
               <Eye className="w-3.5 h-3.5" /> HTML Preview
             </button>
             <button
-              onClick={() => setActiveTab("edit")}
-              className={`flex items-center gap-1.5 px-3 py-3 text-xs font-semibold border-b-2 transition-colors ${activeTab === "edit" ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`}
-              data-testid="tab-edit"
+              onClick={() => setActiveTab("markdown")}
+              className={`flex items-center gap-1.5 px-3 py-3 text-xs font-semibold border-b-2 transition-colors ${activeTab === "markdown" ? "border-primary text-primary" : "border-transparent text-muted-foreground"}`}
+              data-testid="tab-markdown"
             >
               <Edit2 className="w-3.5 h-3.5" /> Markdown
             </button>
@@ -399,9 +506,7 @@ function DigestDetailView({
             />
           )}
         </Card>
-      )}
-
-      {!current.generatedHtml && (
+      ) : (
         <Card className="p-10 text-center text-muted-foreground">
           <FileText className="w-8 h-8 mx-auto mb-3 opacity-40" />
           <p className="text-sm">No digest generated yet.</p>
@@ -412,15 +517,9 @@ function DigestDetailView({
   );
 }
 
-// ── Issues list panel ─────────────────────────────────────────────────────────
+// ── Issue row ─────────────────────────────────────────────────────────────────
 
-function IssueRow({
-  issue,
-  onOpen,
-}: {
-  issue: NewsletterDigestIssue;
-  onOpen: () => void;
-}) {
+function IssueRow({ issue, onOpen }: { issue: NewsletterDigestIssue; onOpen: () => void }) {
   const statusColors: Record<string, string> = {
     draft: "bg-gray-100 text-gray-600",
     generated: "bg-blue-100 text-blue-700",
@@ -434,23 +533,19 @@ function IssueRow({
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="font-semibold text-sm text-foreground">
-              Issue #{issue.issueNumber ?? "—"}
-            </span>
+            <span className="font-semibold text-sm text-foreground">Issue #{issue.issueNumber ?? "—"}</span>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColors[issue.status ?? ""] || ""}`}>
               {issue.status}
             </span>
           </div>
-          {issue.subject && (
-            <p className="text-xs text-muted-foreground line-clamp-1">{issue.subject}</p>
-          )}
+          {issue.subject && <p className="text-xs text-muted-foreground line-clamp-1">{issue.subject}</p>}
           {issue.sentAt && (
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-xs text-muted-foreground mt-0.5">
               Sent {new Date(issue.sentAt).toLocaleDateString()} · {issue.recipientCount ?? 0} recipients
             </p>
           )}
         </div>
-        <ChevronDown className="w-4 h-4 text-muted-foreground rotate-[-90deg] shrink-0" />
+        <ChevronDown className="w-4 h-4 text-muted-foreground -rotate-90 shrink-0" />
       </div>
     </Card>
   );
@@ -458,15 +553,30 @@ function IssueRow({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+type SortKey = "frontierScore" | "relevanceScore" | "createdAt";
+type SortOrder = "asc" | "desc";
+type TrlRange = "" | "1-3" | "4-6" | "7-9";
+
 export default function NewsletterAdminPage() {
   const { toast } = useToast();
-  const [trlFilter, setTrlFilter] = useState<"" | "1-3" | "4-6" | "7-9">("");
+
+  // Filter/sort state
+  const [trlFilter, setTrlFilter] = useState<TrlRange>("");
   const [frontierOnly, setFrontierOnly] = useState(false);
   const [selectedOnly, setSelectedOnly] = useState(false);
-  const [activeIssue, setActiveIssue] = useState<(NewsletterDigestIssue & { items?: NewsletterItem[] }) | null>(null);
+  const [subcategoryFilter, setSubcategoryFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("frontierScore");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+
+  // UI state
+  const [activeIssue, setActiveIssue] = useState<NewsletterDigestIssue | null>(null);
   const [cronSecret, setCronSecret] = useState("");
   const [showSubscribers, setShowSubscribers] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
 
+  // Data queries
   const itemsQuery = useQuery<NewsletterItem[]>({
     queryKey: ["/api/newsletter/items"],
   });
@@ -490,6 +600,54 @@ export default function NewsletterAdminPage() {
     },
   });
 
+  // Derive available subcategories from items
+  const allSubcategories = useMemo(() => {
+    const set = new Set<string>();
+    (itemsQuery.data ?? []).forEach((item) => {
+      item.subcategoryTags?.forEach((t) => set.add(t));
+    });
+    return Array.from(set).sort();
+  }, [itemsQuery.data]);
+
+  // Client-side filter + sort (server-side query params mirror for future perf)
+  const filteredItems = useMemo(() => {
+    const items = itemsQuery.data ?? [];
+    const df = dateFrom ? new Date(dateFrom).getTime() : null;
+    const dt = dateTo ? new Date(dateTo).getTime() + 86400000 : null;
+
+    const filtered = items.filter((item) => {
+      if (frontierOnly && item.isFrontier !== true) return false;
+      if (selectedOnly && item.isSelected !== true) return false;
+      if (trlFilter) {
+        const [min, max] = trlFilter.split("-").map(Number);
+        if (item.trlLevel === null || item.trlLevel === undefined || item.trlLevel < min || item.trlLevel > max) return false;
+      }
+      if (subcategoryFilter && !item.subcategoryTags?.includes(subcategoryFilter)) return false;
+      if (df !== null && item.publishedAt) {
+        const pub = new Date(item.publishedAt).getTime();
+        if (pub < df) return false;
+      }
+      if (dt !== null && item.publishedAt) {
+        const pub = new Date(item.publishedAt).getTime();
+        if (pub > dt) return false;
+      }
+      return true;
+    });
+
+    filtered.sort((a, b) => {
+      const aVal = (a[sortKey] as number | null) ?? -1;
+      const bVal = (b[sortKey] as number | null) ?? -1;
+      return sortOrder === "desc" ? bVal - aVal : aVal - bVal;
+    });
+
+    return filtered;
+  }, [itemsQuery.data, frontierOnly, selectedOnly, trlFilter, subcategoryFilter, dateFrom, dateTo, sortKey, sortOrder]);
+
+  const items = itemsQuery.data ?? [];
+  const selectedCount = items.filter((i) => i.isSelected === true).length;
+  const frontierCount = items.filter((i) => i.isFrontier === true).length;
+
+  // Mutations
   const researchMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/newsletter/research");
@@ -541,7 +699,7 @@ export default function NewsletterAdminPage() {
     onError: (e: Error) => toast({ title: "Update failed", description: e.message, variant: "destructive" }),
   });
 
-  const bulkSelectMutation = useMutation({
+  const bulkMutation = useMutation({
     mutationFn: async ({ ids, data }: { ids: string[]; data: Partial<NewsletterItem> }) => {
       const res = await apiRequest("PATCH", "/api/newsletter/items/bulk", { ids, data });
       if (!res.ok) { const b = await res.json(); throw new Error(b.error || "Failed"); }
@@ -551,20 +709,7 @@ export default function NewsletterAdminPage() {
     onError: (e: Error) => toast({ title: "Bulk update failed", description: e.message, variant: "destructive" }),
   });
 
-  const items = itemsQuery.data ?? [];
-
-  const filteredItems = items.filter((item) => {
-    if (frontierOnly && !item.isFrontier) return false;
-    if (selectedOnly && !item.isSelected) return false;
-    if (trlFilter) {
-      const [min, max] = trlFilter.split("-").map(Number);
-      if (item.trlLevel === null || item.trlLevel < min || item.trlLevel > max) return false;
-    }
-    return true;
-  });
-
-  const selectedCount = items.filter((i) => i.isSelected).length;
-  const frontierCount = items.filter((i) => i.isFrontier).length;
+  // ── Digest detail view ───────────────────────────────────────────────────────
 
   if (activeIssue) {
     return (
@@ -580,12 +725,14 @@ export default function NewsletterAdminPage() {
     );
   }
 
+  // ── Main listing ─────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-5xl mx-auto px-4 py-8">
+      <div className="max-w-6xl mx-auto px-4 py-8">
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        {/* Page header */}
+        <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-foreground">🌿 SolarpunkDigest Admin</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
@@ -610,7 +757,7 @@ export default function NewsletterAdminPage() {
                 data-testid="button-generate-digest"
               >
                 {generateMutation.isPending ? (
-                  <><Loader2 className="w-4 h-4 animate-spin mr-1" />Generating...</>
+                  <><Loader2 className="w-4 h-4 animate-spin mr-1" />Generating…</>
                 ) : (
                   <><FileText className="w-4 h-4 mr-1" />Generate Digest ({selectedCount})</>
                 )}
@@ -623,21 +770,21 @@ export default function NewsletterAdminPage() {
               data-testid="button-run-research"
             >
               {researchMutation.isPending ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Researching...</>
+                <><Loader2 className="w-4 h-4 animate-spin" />Researching…</>
               ) : (
-                <><Play className="w-4 h-4" /> Run Research</>
+                <><Play className="w-4 h-4" />Run Research</>
               )}
             </Button>
           </div>
         </div>
 
-        {/* CRON_SECRET input for sending */}
-        <Card className="p-3 mb-5 bg-amber-50/60 border-amber-200">
+        {/* CRON_SECRET bar */}
+        <Card className="p-3 mb-4 bg-amber-50/60 border-amber-200">
           <div className="flex items-center gap-3">
             <span className="text-xs font-semibold text-amber-700 shrink-0">CRON_SECRET</span>
             <Input
               type="password"
-              placeholder="Enter CRON_SECRET to authorize sending..."
+              placeholder="Enter CRON_SECRET to authorize sending and viewing subscribers…"
               value={cronSecret}
               onChange={(e) => setCronSecret(e.target.value)}
               className="h-8 text-xs flex-1"
@@ -647,9 +794,9 @@ export default function NewsletterAdminPage() {
           </div>
         </Card>
 
-        {/* Subscriber list (collapsible) */}
+        {/* Subscriber panel */}
         {showSubscribers && (
-          <Card className="p-4 mb-5">
+          <Card className="p-4 mb-4">
             <h2 className="text-sm font-semibold text-foreground mb-3">
               Active Subscribers ({subscribersQuery.data?.length ?? "…"})
             </h2>
@@ -657,7 +804,7 @@ export default function NewsletterAdminPage() {
               <p className="text-xs text-amber-600 italic">Enter your CRON_SECRET above to load subscribers.</p>
             ) : subscribersQuery.isLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="w-4 h-4 animate-spin" /> Loading...
+                <Loader2 className="w-4 h-4 animate-spin" /> Loading…
               </div>
             ) : subscribersQuery.isError ? (
               <p className="text-xs text-destructive">{(subscribersQuery.error as Error)?.message || "Failed to load"}</p>
@@ -677,56 +824,80 @@ export default function NewsletterAdminPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
           {/* Items panel */}
-          <div className="lg:col-span-2 space-y-4">
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-1 text-sm">
-                <span className="text-muted-foreground text-xs">TRL:</span>
-                {(["", "1-3", "4-6", "7-9"] as const).map((v) => (
+          <div className="lg:col-span-2 space-y-3">
+
+            {/* Filter toolbar */}
+            <div className="space-y-2">
+              {/* Row 1: TRL + Frontier + Selected + Filters toggle */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-muted-foreground text-xs shrink-0">TRL:</span>
+                {(["", "1-3", "4-6", "7-9"] as TrlRange[]).map((v) => (
                   <button
-                    key={v}
+                    key={v || "all"}
                     onClick={() => setTrlFilter(v)}
-                    className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                      trlFilter === v
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80"
-                    }`}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${trlFilter === v ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
                     data-testid={`button-filter-trl-${v || "all"}`}
                   >
                     {v || "All"}
                   </button>
                 ))}
+
+                <button
+                  onClick={() => setFrontierOnly((f) => !f)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ml-1 ${frontierOnly ? "bg-amber-100 text-amber-700" : "bg-muted text-muted-foreground"}`}
+                  data-testid="button-filter-frontier"
+                >
+                  <Zap className="w-3 h-3" /> Frontier
+                </button>
+
+                <button
+                  onClick={() => setSelectedOnly((s) => !s)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${selectedOnly ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}
+                  data-testid="button-filter-selected"
+                >
+                  <CheckSquare className="w-3 h-3" /> Selected
+                </button>
+
+                <button
+                  onClick={() => setShowFilters((s) => !s)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ml-auto ${showFilters ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}
+                  data-testid="button-toggle-filters"
+                >
+                  <Filter className="w-3 h-3" /> More filters
+                </button>
               </div>
 
-              <button
-                onClick={() => setFrontierOnly((f) => !f)}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                  frontierOnly ? "bg-amber-100 text-amber-700" : "bg-muted text-muted-foreground"
-                }`}
-                data-testid="button-filter-frontier"
-              >
-                <Zap className="w-3 h-3" /> Frontier
-              </button>
+              {/* Row 2: Sort + bulk actions */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <SortAsc className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                {([
+                  { key: "frontierScore", label: "Frontier" },
+                  { key: "relevanceScore", label: "Relevance" },
+                  { key: "createdAt", label: "Date" },
+                ] as { key: SortKey; label: string }[]).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      if (sortKey === key) setSortOrder((o) => (o === "desc" ? "asc" : "desc"));
+                      else { setSortKey(key); setSortOrder("desc"); }
+                    }}
+                    className={`flex items-center gap-0.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${sortKey === key ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}
+                    data-testid={`button-sort-${key}`}
+                  >
+                    {label} {sortKey === key ? (sortOrder === "desc" ? "↓" : "↑") : ""}
+                  </button>
+                ))}
 
-              <button
-                onClick={() => setSelectedOnly((s) => !s)}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                  selectedOnly ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"
-                }`}
-                data-testid="button-filter-selected"
-              >
-                <CheckSquare className="w-3 h-3" /> Selected only
-              </button>
-
-              <div className="ml-auto flex gap-1.5">
+                <span className="text-xs text-muted-foreground ml-auto">{filteredItems.length} shown</span>
                 <Button
                   size="sm"
                   variant="ghost"
                   className="text-xs h-7"
                   onClick={() => {
-                    const ids = filteredItems.filter((i) => !i.isSelected).map((i) => i.id);
-                    if (ids.length > 0) bulkSelectMutation.mutate({ ids, data: { isSelected: true } });
+                    const ids = filteredItems.filter((i) => i.isSelected !== true).map((i) => i.id);
+                    if (ids.length) bulkMutation.mutate({ ids, data: { isSelected: true } });
                   }}
-                  disabled={bulkSelectMutation.isPending}
+                  disabled={bulkMutation.isPending}
                   data-testid="button-select-all"
                 >
                   Select all visible
@@ -736,17 +907,67 @@ export default function NewsletterAdminPage() {
                   variant="ghost"
                   className="text-xs h-7 text-muted-foreground"
                   onClick={() => {
-                    const ids = filteredItems.filter((i) => i.isSelected).map((i) => i.id);
-                    if (ids.length > 0) bulkSelectMutation.mutate({ ids, data: { isSelected: false } });
+                    const ids = filteredItems.filter((i) => i.isSelected === true).map((i) => i.id);
+                    if (ids.length) bulkMutation.mutate({ ids, data: { isSelected: false } });
                   }}
-                  disabled={bulkSelectMutation.isPending}
+                  disabled={bulkMutation.isPending}
                   data-testid="button-deselect-all"
                 >
                   Deselect all
                 </Button>
               </div>
+
+              {/* Row 3: Expanded filters (subcategory + date range) */}
+              {showFilters && (
+                <div className="flex items-center gap-2 flex-wrap p-3 bg-muted/40 rounded-lg">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground shrink-0">Subcategory:</span>
+                    <select
+                      value={subcategoryFilter}
+                      onChange={(e) => setSubcategoryFilter(e.target.value)}
+                      className="h-7 text-xs border border-border rounded-md px-2 bg-background"
+                      data-testid="select-subcategory"
+                    >
+                      <option value="">All</option>
+                      {allSubcategories.map((tag) => (
+                        <option key={tag} value={tag}>{tag}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground shrink-0">From:</span>
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      className="h-7 text-xs border border-border rounded-md px-2 bg-background"
+                      data-testid="input-date-from"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground shrink-0">To:</span>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      className="h-7 text-xs border border-border rounded-md px-2 bg-background"
+                      data-testid="input-date-to"
+                    />
+                  </div>
+                  {(subcategoryFilter || dateFrom || dateTo) && (
+                    <button
+                      onClick={() => { setSubcategoryFilter(""); setDateFrom(""); setDateTo(""); }}
+                      className="text-xs text-muted-foreground hover:text-foreground underline"
+                      data-testid="button-clear-filters"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
+            {/* Item list */}
             {itemsQuery.isLoading ? (
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
@@ -758,16 +979,16 @@ export default function NewsletterAdminPage() {
                   : "No items match the current filters."}
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {filteredItems.map((item) => (
                   <ItemCard
                     key={item.id}
                     item={item}
                     onToggleSelect={(id, current) =>
-                      updateItemMutation.mutate({ id, data: { isSelected: !current } })
+                      updateItemMutation.mutate({ id, data: { isSelected: current !== true } })
                     }
                     onToggleFrontier={(id, current) =>
-                      updateItemMutation.mutate({ id, data: { isFrontier: !current } })
+                      updateItemMutation.mutate({ id, data: { isFrontier: current !== true } })
                     }
                   />
                 ))}
@@ -790,7 +1011,7 @@ export default function NewsletterAdminPage() {
                 {createIssueMutation.isPending ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <><RefreshCw className="w-3.5 h-3.5 mr-1" /> New Issue</>
+                  <><RefreshCw className="w-3.5 h-3.5 mr-1" />New Issue</>
                 )}
               </Button>
             </div>
@@ -801,30 +1022,27 @@ export default function NewsletterAdminPage() {
               </div>
             ) : !issuesQuery.data?.length ? (
               <p className="text-xs text-muted-foreground text-center py-8">
-                No issues yet. Select items then create a new issue.
+                No issues yet. Select items then click 'Generate Digest'.
               </p>
             ) : (
-              <div className="space-y-3">
-                {issuesQuery.data.map((issue) => (
-                  <IssueRow
-                    key={issue.id}
-                    issue={issue}
-                    onOpen={() => setActiveIssue(issue)}
-                  />
+              <div className="space-y-2">
+                {issuesQuery.data.map((iss) => (
+                  <IssueRow key={iss.id} issue={iss} onOpen={() => setActiveIssue(iss)} />
                 ))}
               </div>
             )}
 
+            {/* Workflow guide */}
             <Card className="p-4 bg-muted/40">
               <h3 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">Workflow</h3>
-              <ol className="text-xs text-muted-foreground space-y-1.5 list-none">
+              <ol className="text-xs text-muted-foreground space-y-1.5">
                 {[
-                  "Run Research to discover items",
+                  "Run Research → discovers items",
                   "Star ⚡ frontier discoveries",
-                  "✓ Select items for the digest",
-                  "Click 'Generate Digest'",
+                  "✓ Select items for digest",
+                  "Generate Digest (Claude writes copy)",
                   "Edit subject & intro in preview",
-                  "Enter CRON_SECRET + Send",
+                  "Approve → then Send with CRON_SECRET",
                 ].map((step, i) => (
                   <li key={i} className="flex items-start gap-2">
                     <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-primary/20 text-primary text-[10px] font-bold shrink-0 mt-0.5">
