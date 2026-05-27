@@ -692,7 +692,7 @@ Return ONLY valid JSON, no explanation.`,
   // Admin: list newsletter items with filter/sort params
   app.get("/api/newsletter/items", async (req, res) => {
     try {
-      const { isFrontier, isSelected, trlRange, subcategoryTag, sort, order } = req.query;
+      const { isFrontier, isSelected, trlRange, subcategoryTag, sort, order, from, to } = req.query;
       const items = await storage.listNewsletterItems({
         isFrontier: isFrontier === "true" ? true : isFrontier === "false" ? false : undefined,
         isSelected: isSelected === "true" ? true : isSelected === "false" ? false : undefined,
@@ -700,6 +700,8 @@ Return ONLY valid JSON, no explanation.`,
         subcategoryTag: subcategoryTag as string | undefined,
         sort: sort as "frontierScore" | "relevanceScore" | "createdAt" | undefined,
         order: order as "asc" | "desc" | undefined,
+        from: from ? new Date(from as string) : undefined,
+        to: to ? new Date(to as string) : undefined,
       });
       res.json(items);
     } catch (error: any) {
