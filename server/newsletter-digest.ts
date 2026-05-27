@@ -308,13 +308,12 @@ export async function sendDigest(issueId: string): Promise<{ recipientCount: num
 
     const results = await Promise.allSettled(
       batch.map((subscriber) => {
-        const unsubUrl = `${baseUrl}/api/newsletter/unsubscribe?token=${subscriber.unsubscribeToken || ""}`;
+        // generatedHtml already contains an absolute URL like:
+        //   https://<host>/api/newsletter/unsubscribe?token=UNSUBSCRIBE_TOKEN
+        // Just replace the placeholder token — never touch the URL structure.
         const personalizedHtml = issue.generatedHtml!.replace(
           /UNSUBSCRIBE_TOKEN/g,
-          subscriber.unsubscribeToken || ""
-        ).replace(
-          /\/api\/newsletter\/unsubscribe\?token=/g,
-          `${baseUrl}/api/newsletter/unsubscribe?token=`
+          encodeURIComponent(subscriber.unsubscribeToken || "")
         );
 
         return client.emails.send({

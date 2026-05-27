@@ -77,8 +77,8 @@ export async function registerRoutes(
       if (!email || typeof email !== "string" || !email.includes("@")) {
         return res.status(400).json({ error: "Valid email is required" });
       }
-      const subscriber = await storage.addEmailSubscriber(email.trim().toLowerCase());
-      res.json({ success: true, subscriber });
+      const { unsubscribeToken: _tok, ...safeSubscriber } = await storage.addEmailSubscriber(email.trim().toLowerCase());
+      res.json({ success: true, subscriber: safeSubscriber });
     } catch (error) {
       console.error("Subscribe error:", error);
       res.status(500).json({ error: "Failed to subscribe" });
@@ -647,11 +647,11 @@ Return ONLY valid JSON, no explanation.`,
       if (!email || typeof email !== "string" || !email.includes("@")) {
         return res.status(400).json({ error: "Valid email is required" });
       }
-      const subscriber = await storage.addEmailSubscriber(
+      const { unsubscribeToken: _tok, ...safeSubscriber } = await storage.addEmailSubscriber(
         email.trim().toLowerCase(),
         name?.trim().slice(0, 120) || undefined
       );
-      res.json({ success: true, subscriber });
+      res.json({ success: true, subscriber: safeSubscriber });
     } catch (error) {
       console.error("Newsletter subscribe error:", error);
       res.status(500).json({ error: "Failed to subscribe" });
