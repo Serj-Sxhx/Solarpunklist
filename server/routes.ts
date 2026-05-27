@@ -676,8 +676,9 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
-  // Admin: manual research trigger from admin UI (UI-gated, no bearer required)
-  app.post("/api/newsletter/research", async (_req, res) => {
+  // Admin: manual research trigger — requires CRON_SECRET to prevent paid-API abuse
+  app.post("/api/newsletter/research", async (req, res) => {
+    if (!requireCronSecret(req, res)) return;
     try {
       const { runNewsletterResearch } = await import("./newsletter-research");
       const result = await runNewsletterResearch();

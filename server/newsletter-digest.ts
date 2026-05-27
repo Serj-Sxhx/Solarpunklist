@@ -131,6 +131,29 @@ function getTrlColor(trlLevel: number | null): string {
   return "#10b981";
 }
 
+/** Escape HTML special characters to prevent XSS injection via AI-generated content. */
+function esc(str: string | null | undefined): string {
+  if (!str) return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** Only allow http/https URLs — rejects javascript: and data: schemes. */
+function safeUrl(url: string | null | undefined): string {
+  if (!url) return "#";
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") return url;
+  } catch {
+    // malformed URL
+  }
+  return "#";
+}
+
 function renderDigestHtml(digest: DigestJson, unsubscribeUrl: string): string {
   const sectionsHtml = digest.sections
     .map(
@@ -138,24 +161,24 @@ function renderDigestHtml(digest: DigestJson, unsubscribeUrl: string): string {
     <tr>
       <td style="padding:0 24px;">
         <h2 style="margin:32px 0 16px;font-size:18px;font-weight:700;color:#8b6914;border-bottom:2px solid #fef3c7;padding-bottom:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-          ${section.subcategory}
+          ${esc(section.subcategory)}
         </h2>
         ${section.items
           .map(
             (item) => `
         <div style="margin-bottom:28px;padding:20px;background:#fafaf8;border-radius:10px;border:1px solid #e8e4d8;">
           ${item.isFrontier ? `<div style="margin-bottom:10px;"><span style="display:inline-block;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;letter-spacing:0.05em;">⚡ FRONTIER DISCOVERY</span></div>` : ""}
-          ${item.imageUrl ? `<img src="${item.imageUrl}" alt="${item.headline}" style="width:100%;max-height:200px;object-fit:cover;border-radius:8px;margin-bottom:14px;" />` : ""}
+          ${item.imageUrl ? `<img src="${esc(safeUrl(item.imageUrl))}" alt="${esc(item.headline)}" style="width:100%;max-height:200px;object-fit:cover;border-radius:8px;margin-bottom:14px;" />` : ""}
           <h3 style="margin:0 0 8px;font-size:16px;font-weight:700;color:#1a1a1a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-            <a href="${item.sourceUrl}" style="color:#1a1a1a;text-decoration:none;">${item.headline}</a>
+            <a href="${esc(safeUrl(item.sourceUrl))}" style="color:#1a1a1a;text-decoration:none;">${esc(item.headline)}</a>
           </h3>
           <div style="margin-bottom:10px;">
-            <span style="display:inline-block;background:${getTrlColor(parseInt(item.trlLabel.match(/TRL (\d)/)?.[1] || "0"))};color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;margin-right:6px;">${item.trlLabel}</span>
-            ${item.tags.slice(0, 3).map((tag) => `<span style="display:inline-block;background:#ecfdf5;color:#065f46;font-size:10px;font-weight:600;padding:2px 8px;border-radius:12px;margin-right:4px;">${tag}</span>`).join("")}
+            <span style="display:inline-block;background:${getTrlColor(parseInt(item.trlLabel.match(/TRL (\d)/)?.[1] || "0"))};color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:12px;margin-right:6px;">${esc(item.trlLabel)}</span>
+            ${item.tags.slice(0, 3).map((tag) => `<span style="display:inline-block;background:#ecfdf5;color:#065f46;font-size:10px;font-weight:600;padding:2px 8px;border-radius:12px;margin-right:4px;">${esc(tag)}</span>`).join("")}
           </div>
-          <p style="margin:0 0 12px;font-size:14px;line-height:1.65;color:#444;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">${item.blurb}</p>
+          <p style="margin:0 0 12px;font-size:14px;line-height:1.65;color:#444;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">${esc(item.blurb)}</p>
           <p style="margin:0;font-size:12px;color:#888;">
-            <a href="${item.sourceUrl}" style="color:#4a7c59;text-decoration:none;font-weight:600;">Read more → ${item.sourceDomain}</a>
+            <a href="${esc(safeUrl(item.sourceUrl))}" style="color:#4a7c59;text-decoration:none;font-weight:600;">Read more → ${esc(item.sourceDomain)}</a>
           </p>
         </div>`
           )
@@ -170,7 +193,7 @@ function renderDigestHtml(digest: DigestJson, unsubscribeUrl: string): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${digest.subject}</title>
+  <title>${esc(digest.subject)}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f5f3ee;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:24px 16px;">
@@ -188,7 +211,7 @@ function renderDigestHtml(digest: DigestJson, unsubscribeUrl: string): string {
       <!-- Intro -->
       <tr>
         <td style="padding:28px 24px 8px;">
-          <p style="margin:0;font-size:15px;line-height:1.7;color:#333;">${digest.introText}</p>
+          <p style="margin:0;font-size:15px;line-height:1.7;color:#333;">${esc(digest.introText)}</p>
         </td>
       </tr>
 
@@ -202,7 +225,7 @@ function renderDigestHtml(digest: DigestJson, unsubscribeUrl: string): string {
             You're receiving this because you subscribed to SolarpunkDigest.
           </p>
           <p style="margin:0;font-size:12px;">
-            <a href="${unsubscribeUrl}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>
+            <a href="${esc(safeUrl(unsubscribeUrl))}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>
             &nbsp;·&nbsp;
             <a href="https://solarpunklist.com" style="color:#4a7c59;text-decoration:none;font-weight:600;">Powered by SolarpunkList</a>
           </p>

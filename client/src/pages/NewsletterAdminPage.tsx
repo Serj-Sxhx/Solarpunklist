@@ -491,6 +491,7 @@ function DigestDetailView({
           {activeTab === "preview" ? (
             <iframe
               srcDoc={current.generatedHtml}
+              sandbox="allow-popups allow-popups-to-escape-sandbox"
               className="w-full border-0"
               style={{ height: 700 }}
               title="Digest email preview"
@@ -650,8 +651,15 @@ export default function NewsletterAdminPage() {
   // Mutations
   const researchMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/newsletter/research");
-      if (!res.ok) { const b = await res.json(); throw new Error(b.error || "Failed"); }
+      if (!cronSecret) throw new Error("CRON_SECRET is required to run research");
+      const res = await fetch("/api/newsletter/research", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${cronSecret}`,
+        },
+      });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || "Failed"); }
       return res.json();
     },
     onSuccess: (data) => {
