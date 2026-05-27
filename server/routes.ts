@@ -752,14 +752,16 @@ Return ONLY valid JSON, no explanation.`,
       let draftIssue = issues.find((i) => i.status === "draft");
       if (!draftIssue) {
         draftIssue = await storage.createNewsletterDigestIssue({ status: "draft" });
-        // Link selected unassigned items
-        const selectedItems = await storage.listNewsletterItems({ isSelected: true, digestIssueId: null });
-        if (selectedItems.length > 0) {
-          await storage.bulkUpdateNewsletterItems(
-            selectedItems.map((i) => i.id),
-            { digestIssueId: draftIssue.id }
-          );
-        }
+      }
+      // Always sync currently selected unassigned items into this draft
+      // (covers both new draft creation AND the case where items were selected
+      // after the draft already existed)
+      const selectedUnassigned = await storage.listNewsletterItems({ isSelected: true, digestIssueId: null });
+      if (selectedUnassigned.length > 0) {
+        await storage.bulkUpdateNewsletterItems(
+          selectedUnassigned.map((i) => i.id),
+          { digestIssueId: draftIssue.id }
+        );
       }
       const { generateDigest } = await import("./newsletter-digest");
       await generateDigest(draftIssue.id);
@@ -858,11 +860,14 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
-  // Admin: list active subscribers
-  app.get("/api/newsletter/subscribers", async (_req, res) => {
+  // Admin: list active subscribers — CRON_SECRET required (PII endpoint)
+  app.get("/api/newsletter/subscribers", async (req, res) => {
+    if (!requireCronSecret(req, res)) return;
     try {
       const subscribers = await storage.listActiveSubscribers();
-      res.json(subscribers);
+      // Strip unsubscribeToken from response — tokens are action keys and must not be publicly enumerable
+      const safe = subscribers.map(({ unsubscribeToken: _tok, ...rest }) => rest);
+      res.json(safe);
     } catch (error: any) {
       console.error("List subscribers error:", error);
       res.status(500).json({ error: "Failed to fetch subscribers" });

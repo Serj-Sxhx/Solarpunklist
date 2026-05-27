@@ -476,8 +476,18 @@ export default function NewsletterAdminPage() {
   });
 
   const subscribersQuery = useQuery<any[]>({
-    queryKey: ["/api/newsletter/subscribers"],
-    enabled: showSubscribers,
+    queryKey: ["/api/newsletter/subscribers", cronSecret],
+    enabled: showSubscribers && !!cronSecret,
+    queryFn: async () => {
+      const res = await fetch("/api/newsletter/subscribers", {
+        headers: { Authorization: `Bearer ${cronSecret}` },
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error(b.error || "Unauthorized — check CRON_SECRET");
+      }
+      return res.json();
+    },
   });
 
   const researchMutation = useMutation({
@@ -643,10 +653,14 @@ export default function NewsletterAdminPage() {
             <h2 className="text-sm font-semibold text-foreground mb-3">
               Active Subscribers ({subscribersQuery.data?.length ?? "…"})
             </h2>
-            {subscribersQuery.isLoading ? (
+            {!cronSecret ? (
+              <p className="text-xs text-amber-600 italic">Enter your CRON_SECRET above to load subscribers.</p>
+            ) : subscribersQuery.isLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" /> Loading...
               </div>
+            ) : subscribersQuery.isError ? (
+              <p className="text-xs text-destructive">{(subscribersQuery.error as Error)?.message || "Failed to load"}</p>
             ) : (
               <div className="max-h-40 overflow-y-auto space-y-1">
                 {subscribersQuery.data?.map((sub) => (
