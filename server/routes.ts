@@ -610,5 +610,181 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
+  // ── Newsletter API ────────────────────────────────────────────────────────────
+
+  // Public: update subscribe endpoint to accept name
+  app.post("/api/newsletter/subscribe", async (req, res) => {
+    try {
+      const { email, name } = req.body;
+      if (!email || typeof email !== "string" || !email.includes("@")) {
+        return res.status(400).json({ error: "Valid email is required" });
+      }
+      const subscriber = await storage.addEmailSubscriber(
+        email.trim().toLowerCase(),
+        name?.trim().slice(0, 120) || undefined
+      );
+      res.json({ success: true, subscriber });
+    } catch (error) {
+      console.error("Newsletter subscribe error:", error);
+      res.status(500).json({ error: "Failed to subscribe" });
+    }
+  });
+
+  // Public: unsubscribe via token
+  app.get("/api/newsletter/unsubscribe", async (req, res) => {
+    try {
+      const token = req.query.token as string;
+      if (!token) return res.status(400).json({ error: "Token is required" });
+      const subscriber = await storage.deactivateSubscriber(token);
+      if (!subscriber) return res.status(404).json({ error: "Subscriber not found" });
+      res.send(`<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:500px;margin:80px auto;text-align:center;">
+        <h1 style="color:#333;">Unsubscribed</h1>
+        <p style="color:#666;">You've been removed from SolarpunkDigest. Sorry to see you go!</p>
+        <a href="/" style="color:#4a7c59;">← Back to SolarpunkList</a>
+      </body></html>`);
+    } catch (error) {
+      console.error("Unsubscribe error:", error);
+      res.status(500).json({ error: "Failed to unsubscribe" });
+    }
+  });
+
+  // Admin: run research pipeline
+  app.post("/api/admin/newsletter/run-research", async (_req, res) => {
+    try {
+      const { runNewsletterResearch } = await import("./newsletter-research");
+      const result = await runNewsletterResearch();
+      res.json(result);
+    } catch (error: any) {
+      console.error("Newsletter research error:", error);
+      res.status(500).json({ error: error?.message || "Research failed" });
+    }
+  });
+
+  // Admin: list newsletter items (with optional filters)
+  app.get("/api/admin/newsletter/items", async (req, res) => {
+    try {
+      const { isFrontier, isSelected, trlRange, subcategoryTag, sort, order } = req.query;
+      const items = await storage.listNewsletterItems({
+        isFrontier: isFrontier === "true" ? true : isFrontier === "false" ? false : undefined,
+        isSelected: isSelected === "true" ? true : isSelected === "false" ? false : undefined,
+        trlRange: trlRange as "1-3" | "4-6" | "7-9" | undefined,
+        subcategoryTag: subcategoryTag as string | undefined,
+        sort: sort as "frontierScore" | "relevanceScore" | "createdAt" | undefined,
+        order: order as "asc" | "desc" | undefined,
+      });
+      res.json(items);
+    } catch (error: any) {
+      console.error("Newsletter items error:", error);
+      res.status(500).json({ error: "Failed to fetch newsletter items" });
+    }
+  });
+
+  // Admin: update a single item
+  app.patch("/api/admin/newsletter/items/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { isSelected, isFrontier, sortOrder } = req.body;
+      const data: Record<string, unknown> = {};
+      if (isSelected !== undefined) data.isSelected = Boolean(isSelected);
+      if (isFrontier !== undefined) data.isFrontier = Boolean(isFrontier);
+      if (sortOrder !== undefined) data.sortOrder = Number(sortOrder);
+      const item = await storage.updateNewsletterItem(id, data);
+      if (!item) return res.status(404).json({ error: "Item not found" });
+      res.json(item);
+    } catch (error: any) {
+      console.error("Newsletter item update error:", error);
+      res.status(500).json({ error: "Failed to update item" });
+    }
+  });
+
+  // Admin: bulk update items
+  app.post("/api/admin/newsletter/items/bulk-update", async (req, res) => {
+    try {
+      const { ids, data } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: "ids array is required" });
+      }
+      const allowed: Record<string, unknown> = {};
+      if (data.isSelected !== undefined) allowed.isSelected = Boolean(data.isSelected);
+      if (data.isFrontier !== undefined) allowed.isFrontier = Boolean(data.isFrontier);
+      await storage.bulkUpdateNewsletterItems(ids, allowed);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Bulk update error:", error);
+      res.status(500).json({ error: "Failed to bulk update items" });
+    }
+  });
+
+  // Admin: list digest issues
+  app.get("/api/admin/newsletter/issues", async (_req, res) => {
+    try {
+      const issues = await storage.listNewsletterDigestIssues();
+      res.json(issues);
+    } catch (error: any) {
+      console.error("List issues error:", error);
+      res.status(500).json({ error: "Failed to fetch digest issues" });
+    }
+  });
+
+  // Admin: create a new draft issue (links currently selected items)
+  app.post("/api/admin/newsletter/issues", async (_req, res) => {
+    try {
+      const issue = await storage.createNewsletterDigestIssue({
+        status: "draft",
+      });
+
+      // Link currently-selected items to this new issue
+      const selectedItems = await storage.listNewsletterItems({ isSelected: true, digestIssueId: null });
+      if (selectedItems.length > 0) {
+        await storage.bulkUpdateNewsletterItems(
+          selectedItems.map((i) => i.id),
+          { digestIssueId: issue.id }
+        );
+      }
+
+      res.json(issue);
+    } catch (error: any) {
+      console.error("Create issue error:", error);
+      res.status(500).json({ error: "Failed to create digest issue" });
+    }
+  });
+
+  // Admin: generate digest HTML for an issue
+  app.post("/api/admin/newsletter/issues/:id/generate", async (req, res) => {
+    try {
+      const { generateDigest } = await import("./newsletter-digest");
+      await generateDigest(req.params.id);
+      const issue = await storage.getNewsletterDigestIssue(req.params.id);
+      res.json(issue);
+    } catch (error: any) {
+      console.error("Generate digest error:", error);
+      res.status(500).json({ error: error?.message || "Failed to generate digest" });
+    }
+  });
+
+  // Admin: send a digest issue to all active subscribers
+  app.post("/api/admin/newsletter/issues/:id/send", async (req, res) => {
+    try {
+      const { sendDigest } = await import("./newsletter-digest");
+      const result = await sendDigest(req.params.id);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Send digest error:", error);
+      res.status(500).json({ error: error?.message || "Failed to send digest" });
+    }
+  });
+
+  // Admin: get a single issue with items
+  app.get("/api/admin/newsletter/issues/:id", async (req, res) => {
+    try {
+      const issue = await storage.getNewsletterDigestIssue(req.params.id);
+      if (!issue) return res.status(404).json({ error: "Issue not found" });
+      res.json(issue);
+    } catch (error: any) {
+      console.error("Get issue error:", error);
+      res.status(500).json({ error: "Failed to fetch issue" });
+    }
+  });
+
   return httpServer;
 }

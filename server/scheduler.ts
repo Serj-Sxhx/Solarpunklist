@@ -23,5 +23,17 @@ export function startScheduler() {
     }
   });
 
-  console.log("[scheduler] Weekly discovery (Mon 3AM UTC) and monthly refresh (1st 4AM UTC) scheduled");
+  // Newsletter research: every Tuesday at 2 AM UTC
+  cron.schedule("0 2 * * 2", async () => {
+    console.log("[scheduler] Starting weekly newsletter research run...");
+    try {
+      const { runNewsletterResearch } = await import("./newsletter-research");
+      const result = await runNewsletterResearch();
+      console.log(`[scheduler] Newsletter research complete: ${result.itemsNew} new items found`);
+    } catch (error) {
+      console.error("[scheduler] Newsletter research run failed:", error);
+    }
+  });
+
+  console.log("[scheduler] Weekly discovery (Mon 3AM UTC), monthly refresh (1st 4AM UTC), newsletter research (Tue 2AM UTC) scheduled");
 }

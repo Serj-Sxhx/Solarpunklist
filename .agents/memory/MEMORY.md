@@ -1,0 +1,1 @@
+- [SolarpunkDigest newsletter architecture](newsletter-digest-architecture.md) — key constraints: issueNumber is DB-auto, unsubscribe token interpolation pattern, Claude model split, nullable boolean handling
