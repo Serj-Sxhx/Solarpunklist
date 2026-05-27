@@ -23,17 +23,17 @@ export function startScheduler() {
     }
   });
 
-  // Newsletter research: every Tuesday at 2 AM UTC
-  cron.schedule("0 2 * * 2", async () => {
-    console.log("[scheduler] Starting weekly newsletter research run...");
+  // Newsletter research: daily at 6 AM UTC — uses CRON_SECRET internally
+  cron.schedule("0 6 * * *", async () => {
+    console.log("[scheduler] Starting daily newsletter research run...");
     try {
       const { runNewsletterResearch } = await import("./newsletter-research");
       const result = await runNewsletterResearch();
-      console.log(`[scheduler] Newsletter research complete: ${result.itemsNew} new items found`);
+      console.log(`[scheduler] Newsletter research complete: ${result.itemsNew} new items found, ${result.queriesExecuted} queries`);
     } catch (error) {
       console.error("[scheduler] Newsletter research run failed:", error);
     }
   });
 
-  console.log("[scheduler] Weekly discovery (Mon 3AM UTC), monthly refresh (1st 4AM UTC), newsletter research (Tue 2AM UTC) scheduled");
+  console.log("[scheduler] Weekly discovery (Mon 3AM UTC), monthly refresh (1st 4AM UTC), daily newsletter research (6AM UTC) scheduled");
 }

@@ -6,25 +6,30 @@ description: Key decisions and constraints for the newsletter research+digest pi
 ## issueNumber is DB-auto-generated
 `newsletterDigestIssues.issueNumber` is a `serial()` column — it's omitted from `insertNewsletterDigestIssueSchema`. Never pass it to `createNewsletterDigestIssue()`.
 
+## Auth model: CRON_SECRET Bearer token
+- `POST /api/cron/research` — requires Bearer CRON_SECRET (external scheduler)
+- `POST /api/newsletter/issues/:id/send` — requires Bearer CRON_SECRET (mass email protection)
+- All other newsletter admin routes — UI-gated only (no V1 server auth)
+- Admin UI has a CRON_SECRET input field so admins can authorize sending from browser
+
+**Why:** V1 has no user authentication. CRON_SECRET protects the two highest-impact endpoints.
+
+## Route namespace
+All newsletter endpoints live under `/api/newsletter/*`. Special cron: `POST /api/cron/research`. NOT `/api/admin/newsletter/*`.
+
 ## Unsubscribe token interpolation
-`sendDigest()` uses string replacement on the generated HTML: replaces `UNSUBSCRIBE_TOKEN` placeholder with each subscriber's real token at send time. Don't change the placeholder string without updating both `generateDigest()` and `sendDigest()`.
+`sendDigest()` interpolates each subscriber's token at send time by replacing `UNSUBSCRIBE_TOKEN` placeholder in generated HTML. Don't change the placeholder without updating both files.
 
-## Claude model split
-- Newsletter item enrichment: `claude-haiku-4-5` (cheap, fast, 600 tokens)
-- Digest narrative generation: `claude-sonnet-4-5` (higher quality, 4000 tokens)
-
-**Why:** Research runs dozens of items per session; using Haiku keeps costs manageable. Digest is one call per issue so quality matters more.
-
-## Research dedup pattern
-`getExistingNewsletterSourceUrls()` returns a Set of all known URLs. Within a run, a local Set is also maintained to prevent intra-run duplication before DB commit.
+## Daily research schedule
+Cron: `0 6 * * *` (6AM UTC daily). Manual trigger: `POST /api/newsletter/research` (no auth, admin UI).
 
 ## isSelected / isFrontier are nullable booleans in schema
-Use `=== true` for comparisons in frontend, never truthy checks, to handle `null` safely.
+Use `=== true` for comparisons in frontend to handle `null` safely.
 
 ## Admin workflow (6 steps)
-1. Run Research → discovers items
+1. Run Research → discovers items via Exa + Claude Haiku
 2. Star ⚡ frontier items (auto-starred: top 3-5 by frontierScore)
 3. ✓ Select items for the digest
-4. Create new issue (links currently selected + unassigned items)
-5. Generate digest (Claude Sonnet → HTML/Markdown)
-6. Send to all active subscribers (Resend batched)
+4. Click 'Generate Digest' → Claude Sonnet writes newsletter copy
+5. Edit subject & intro inline in digest detail view; preview in iframe
+6. Enter CRON_SECRET + Send to all active subscribers (Resend batched 50/batch)

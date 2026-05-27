@@ -612,7 +612,35 @@ Return ONLY valid JSON, no explanation.`,
 
   // ── Newsletter API ────────────────────────────────────────────────────────────
 
-  // Public: update subscribe endpoint to accept name
+  // Auth helper: verify Bearer CRON_SECRET for sensitive endpoints
+  function requireCronSecret(req: any, res: any): boolean {
+    const secret = process.env.CRON_SECRET;
+    if (!secret) {
+      res.status(503).json({ error: "CRON_SECRET not configured on server" });
+      return false;
+    }
+    const auth = req.headers.authorization || "";
+    if (!auth.startsWith("Bearer ") || auth.slice(7) !== secret) {
+      res.status(401).json({ error: "Unauthorized" });
+      return false;
+    }
+    return true;
+  }
+
+  // Cron endpoint: Bearer CRON_SECRET required — called by external scheduler
+  app.post("/api/cron/research", async (req, res) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const { runNewsletterResearch } = await import("./newsletter-research");
+      const result = await runNewsletterResearch();
+      res.json(result);
+    } catch (error: any) {
+      console.error("[cron] Newsletter research error:", error);
+      res.status(500).json({ error: error?.message || "Research failed" });
+    }
+  });
+
+  // Public: subscribe — also accepts name, creates/reactivates subscriber with unsubscribe token
   app.post("/api/newsletter/subscribe", async (req, res) => {
     try {
       const { email, name } = req.body;
@@ -630,7 +658,7 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
-  // Public: unsubscribe via token
+  // Public: unsubscribe via token — one-click unsubscribe from email footer
   app.get("/api/newsletter/unsubscribe", async (req, res) => {
     try {
       const token = req.query.token as string;
@@ -648,8 +676,8 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
-  // Admin: run research pipeline
-  app.post("/api/admin/newsletter/run-research", async (_req, res) => {
+  // Admin: manual research trigger from admin UI (UI-gated, no bearer required)
+  app.post("/api/newsletter/research", async (_req, res) => {
     try {
       const { runNewsletterResearch } = await import("./newsletter-research");
       const result = await runNewsletterResearch();
@@ -660,8 +688,8 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
-  // Admin: list newsletter items (with optional filters)
-  app.get("/api/admin/newsletter/items", async (req, res) => {
+  // Admin: list newsletter items with filter/sort params
+  app.get("/api/newsletter/items", async (req, res) => {
     try {
       const { isFrontier, isSelected, trlRange, subcategoryTag, sort, order } = req.query;
       const items = await storage.listNewsletterItems({
@@ -679,14 +707,15 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
-  // Admin: update a single item
-  app.patch("/api/admin/newsletter/items/:id", async (req, res) => {
+  // Admin: update a single item (isSelected, isFrontier, adminNotes, sortOrder)
+  app.patch("/api/newsletter/items/:id", async (req, res) => {
     try {
       const { id } = req.params;
-      const { isSelected, isFrontier, sortOrder } = req.body;
+      const { isSelected, isFrontier, adminNotes, sortOrder } = req.body;
       const data: Record<string, unknown> = {};
       if (isSelected !== undefined) data.isSelected = Boolean(isSelected);
       if (isFrontier !== undefined) data.isFrontier = Boolean(isFrontier);
+      if (adminNotes !== undefined) data.adminNotes = String(adminNotes).slice(0, 1000);
       if (sortOrder !== undefined) data.sortOrder = Number(sortOrder);
       const item = await storage.updateNewsletterItem(id, data);
       if (!item) return res.status(404).json({ error: "Item not found" });
@@ -697,8 +726,8 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
-  // Admin: bulk update items
-  app.post("/api/admin/newsletter/items/bulk-update", async (req, res) => {
+  // Admin: bulk update items (isSelected, isFrontier)
+  app.patch("/api/newsletter/items/bulk", async (req, res) => {
     try {
       const { ids, data } = req.body;
       if (!Array.isArray(ids) || ids.length === 0) {
@@ -715,8 +744,35 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
+  // Admin: generate digest from currently selected items, creates/updates draft issue
+  app.post("/api/newsletter/generate", async (_req, res) => {
+    try {
+      // Find the latest draft issue or create one
+      const issues = await storage.listNewsletterDigestIssues();
+      let draftIssue = issues.find((i) => i.status === "draft");
+      if (!draftIssue) {
+        draftIssue = await storage.createNewsletterDigestIssue({ status: "draft" });
+        // Link selected unassigned items
+        const selectedItems = await storage.listNewsletterItems({ isSelected: true, digestIssueId: null });
+        if (selectedItems.length > 0) {
+          await storage.bulkUpdateNewsletterItems(
+            selectedItems.map((i) => i.id),
+            { digestIssueId: draftIssue.id }
+          );
+        }
+      }
+      const { generateDigest } = await import("./newsletter-digest");
+      await generateDigest(draftIssue.id);
+      const issue = await storage.getNewsletterDigestIssue(draftIssue.id);
+      res.json(issue);
+    } catch (error: any) {
+      console.error("Generate digest error:", error);
+      res.status(500).json({ error: error?.message || "Failed to generate digest" });
+    }
+  });
+
   // Admin: list digest issues
-  app.get("/api/admin/newsletter/issues", async (_req, res) => {
+  app.get("/api/newsletter/issues", async (_req, res) => {
     try {
       const issues = await storage.listNewsletterDigestIssues();
       res.json(issues);
@@ -726,14 +782,42 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
-  // Admin: create a new draft issue (links currently selected items)
-  app.post("/api/admin/newsletter/issues", async (_req, res) => {
+  // Admin: get single issue with its items
+  app.get("/api/newsletter/issues/:id", async (req, res) => {
     try {
-      const issue = await storage.createNewsletterDigestIssue({
-        status: "draft",
-      });
+      const issue = await storage.getNewsletterDigestIssue(req.params.id);
+      if (!issue) return res.status(404).json({ error: "Issue not found" });
+      res.json(issue);
+    } catch (error: any) {
+      console.error("Get issue error:", error);
+      res.status(500).json({ error: "Failed to fetch issue" });
+    }
+  });
 
-      // Link currently-selected items to this new issue
+  // Admin: update issue subject / intro text / status
+  app.patch("/api/newsletter/issues/:id", async (req, res) => {
+    try {
+      const { subject, introText, status } = req.body;
+      const data: Record<string, unknown> = {};
+      if (subject !== undefined) data.subject = String(subject).slice(0, 500);
+      if (introText !== undefined) data.introText = String(introText).slice(0, 5000);
+      if (status !== undefined && ["draft", "generated", "approved", "sent", "discarded"].includes(status)) {
+        data.status = status;
+      }
+      const issue = await storage.updateNewsletterDigestIssue(req.params.id, data);
+      if (!issue) return res.status(404).json({ error: "Issue not found" });
+      res.json(issue);
+    } catch (error: any) {
+      console.error("Update issue error:", error);
+      res.status(500).json({ error: "Failed to update issue" });
+    }
+  });
+
+  // Admin: create a new draft issue explicitly
+  app.post("/api/newsletter/issues", async (_req, res) => {
+    try {
+      const issue = await storage.createNewsletterDigestIssue({ status: "draft" });
+      // Link currently-selected unassigned items
       const selectedItems = await storage.listNewsletterItems({ isSelected: true, digestIssueId: null });
       if (selectedItems.length > 0) {
         await storage.bulkUpdateNewsletterItems(
@@ -741,7 +825,6 @@ Return ONLY valid JSON, no explanation.`,
           { digestIssueId: issue.id }
         );
       }
-
       res.json(issue);
     } catch (error: any) {
       console.error("Create issue error:", error);
@@ -749,8 +832,8 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
-  // Admin: generate digest HTML for an issue
-  app.post("/api/admin/newsletter/issues/:id/generate", async (req, res) => {
+  // Admin: generate digest for a specific issue
+  app.post("/api/newsletter/issues/:id/generate", async (req, res) => {
     try {
       const { generateDigest } = await import("./newsletter-digest");
       await generateDigest(req.params.id);
@@ -762,8 +845,9 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
-  // Admin: send a digest issue to all active subscribers
-  app.post("/api/admin/newsletter/issues/:id/send", async (req, res) => {
+  // Admin: send issue — requires CRON_SECRET Bearer OR active session (admin-gated)
+  app.post("/api/newsletter/issues/:id/send", async (req, res) => {
+    if (!requireCronSecret(req, res)) return;
     try {
       const { sendDigest } = await import("./newsletter-digest");
       const result = await sendDigest(req.params.id);
@@ -774,15 +858,14 @@ Return ONLY valid JSON, no explanation.`,
     }
   });
 
-  // Admin: get a single issue with items
-  app.get("/api/admin/newsletter/issues/:id", async (req, res) => {
+  // Admin: list active subscribers
+  app.get("/api/newsletter/subscribers", async (_req, res) => {
     try {
-      const issue = await storage.getNewsletterDigestIssue(req.params.id);
-      if (!issue) return res.status(404).json({ error: "Issue not found" });
-      res.json(issue);
+      const subscribers = await storage.listActiveSubscribers();
+      res.json(subscribers);
     } catch (error: any) {
-      console.error("Get issue error:", error);
-      res.status(500).json({ error: "Failed to fetch issue" });
+      console.error("List subscribers error:", error);
+      res.status(500).json({ error: "Failed to fetch subscribers" });
     }
   });
 
