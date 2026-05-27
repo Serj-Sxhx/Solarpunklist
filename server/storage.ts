@@ -85,7 +85,7 @@ export interface IStorage {
   updateNewsletterResearchRun(id: string, data: Partial<InsertNewsletterResearchRun>): Promise<NewsletterResearchRun | undefined>;
 
   // Newsletter — items
-  createNewsletterItem(data: InsertNewsletterItem): Promise<NewsletterItem>;
+  createNewsletterItem(data: InsertNewsletterItem): Promise<NewsletterItem | undefined>;
   listNewsletterItems(filters?: NewsletterItemFilters): Promise<NewsletterItem[]>;
   updateNewsletterItem(id: string, data: Partial<InsertNewsletterItem>): Promise<NewsletterItem | undefined>;
   bulkUpdateNewsletterItems(ids: string[], data: Partial<InsertNewsletterItem>): Promise<void>;
@@ -204,7 +204,13 @@ export class DatabaseStorage implements IStorage {
       .values({ email, name, isActive: true, unsubscribeToken: token })
       .onConflictDoUpdate({
         target: emailSubscribers.email,
-        set: { isActive: true, unsubscribedAt: null, ...(name ? { name } : {}) },
+        set: {
+          isActive: true,
+          unsubscribedAt: null,
+          // Always ensure token exists — regenerate if the existing row has none
+          unsubscribeToken: sql`COALESCE(email_subscribers.unsubscribe_token, ${token})`,
+          ...(name ? { name } : {}),
+        },
       })
       .returning();
     return subscriber;

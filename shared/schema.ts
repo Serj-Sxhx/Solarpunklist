@@ -112,7 +112,7 @@ export const emailSubscribers = pgTable("email_subscribers", {
   name: text("name"),
   isActive: boolean("is_active").default(true),
   unsubscribedAt: timestamp("unsubscribed_at"),
-  unsubscribeToken: text("unsubscribe_token"),
+  unsubscribeToken: text("unsubscribe_token").unique().default(sql`gen_random_uuid()`),
   createdAt: timestamp("created_at").default(sql`now()`),
 });
 
